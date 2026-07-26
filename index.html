@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VHIS Plan Finder — agent tool</title>
+  <link rel="stylesheet" href="style.css?v=6" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">✚</span>
+      <div>
+        <h1>VHIS Plan Finder</h1>
+        <p class="tagline">Voluntary Health Insurance Scheme — agent quoting &amp; comparison</p>
+      </div>
+    </div>
+    <div class="stats" id="headerStats"><span class="pill">loading data…</span></div>
+  </header>
+
+  <main>
+    <!-- CLIENT + FILTER CONTROLS -->
+    <section class="controls" id="controls" aria-label="Client and filters">
+      <div class="control-group client">
+        <h2>Client</h2>
+        <div class="row">
+          <label>Age
+            <input type="number" id="age" min="0" max="100" value="35" />
+          </label>
+          <div class="seg" id="gender" data-value="M" role="group" aria-label="Gender">
+            <button data-v="M" class="on">Male</button><button data-v="F">Female</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="seg" id="freq" data-value="annual">
+            <button data-v="annual" class="on">Annual</button><button data-v="monthly">Monthly</button>
+          </div>
+          <div class="seg" id="currency" data-value="HKD">
+            <button data-v="HKD" class="on">HKD</button><button data-v="USD">USD</button>
+          </div>
+          <label class="chk"><input type="checkbox" id="smoker" /> Smoker</label>
+        </div>
+      </div>
+
+      <div class="control-group filters">
+        <h2>Filter</h2>
+        <div class="row">
+          <input type="search" id="search" placeholder="Search plan or insurer…" />
+          <select id="insurer"><option value="">All insurers</option></select>
+        </div>
+        <div class="row">
+          <div class="seg" id="ptype" data-value="">
+            <button data-v="" class="on">All</button><button data-v="Standard">Standard</button><button data-v="Flexi">Flexi</button>
+          </div>
+          <label class="chk"><input type="checkbox" id="openOnly" checked /> Sellable only</label>
+          <label class="chk"><input type="checkbox" id="smmOnly" /> With SMM</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section class="results">
+      <div class="results-head">
+        <span id="resultCount" class="count"></span>
+        <span class="hint">indicative premium at the client's age · non-guaranteed · sorted low→high</span>
+        <span class="spacer"></span>
+        <button class="btn" id="exportCsv">Export CSV</button>
+        <button class="btn" id="printQuote">Print / PDF</button>
+      </div>
+      <div class="table-wrap">
+        <table id="resultsTable">
+          <colgroup>
+            <col class="c-chk" /><col class="c-ins" /><col class="c-plan" /><col class="c-lvl" /><col class="c-type" /><col class="c-prem" /><col class="c-stat" /><col class="c-act" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="chkcell" title="Select to compare">⇄</th>
+              <th data-sort="company">Insurer</th>
+              <th data-sort="plan">Plan</th>
+              <th data-sort="level">Level</th>
+              <th>Type</th>
+              <th class="num" data-sort="premium">Premium ▲</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- COMPARE TRAY -->
+  <div class="cmpbar" id="cmpbar" hidden>
+    <span id="cmpCount"></span>
+    <span class="cmp-names" id="cmpNames"></span>
+    <button class="btn primary" id="cmpOpen">Compare ⇄</button>
+    <button class="btn" id="cmpClear">Clear</button>
+  </div>
+
+  <!-- COMPARE OVERLAY -->
+  <div class="cmp-overlay" id="cmpOverlay" hidden>
+    <div class="cmp-panel">
+      <div class="cmp-head">
+        <h2 id="cmpTitle">Plan comparison</h2>
+        <div>
+          <button class="btn" id="cmpCsv">Export CSV</button>
+          <button class="btn" id="cmpPrint">Print / PDF</button>
+          <button class="btn" id="cmpClose">Close ✕</button>
+        </div>
+      </div>
+      <div class="cmp-body" id="cmpBody"></div>
+    </div>
+  </div>
+
+  <!-- PLAN DETAIL DRAWER -->
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="drawer" id="drawer" hidden aria-label="Plan detail">
+    <button class="drawer-close" id="drawerClose" aria-label="Close">✕</button>
+    <div id="drawerContent"></div>
+  </aside>
+
+  <footer class="foot">
+    <span>Data: HK Government VHIS certified-plans open dataset (data.gov.hk) + plan-document PDFs.</span>
+    <span id="dataMeta"></span>
+    <span class="disclaimer">For agent reference only. Premiums are non-guaranteed and exclude the IA levy. Verify against the official documents before advising a client.</span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
+  <script src="app.js?v=6"></script>
+</body>
+</html>
