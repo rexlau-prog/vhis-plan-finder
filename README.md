@@ -26,6 +26,12 @@ Everything is sourced from the Hong Kong Government's official
 
 ## Features
 
+- **Trilingual — English / 繁體中文 / 简体中文.** Switch in the header; the choice
+  is remembered, and the app opens in the browser's preferred language. Plan
+  names, insurers and plan levels come from the Government's own trilingual
+  dataset; benefit-item names and limit wording use the official Chinese terms
+  from the regulator's Chinese plan documents (病房及膳食, 全數保障, 每保單年度 …).
+  Search matches across all three languages at once.
 - **Quote by client profile** — age 0–100, male/female, smoker/non-smoker,
   HKD/USD, annual or monthly. Handles gendered vs unisex rate tables, smoker
   loadings, and plans priced as basic + rider.

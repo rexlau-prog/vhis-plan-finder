@@ -15,7 +15,18 @@ html,body{margin:0}
 /* an explicit `display` on .cmpbar / .cmp-overlay / .drawer would otherwise beat
    the UA's [hidden]{display:none}, leaving them permanently on screen */
 [hidden]{display:none !important}
-body{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang HK","Microsoft JhengHei",sans-serif;-webkit-font-smoothing:antialiased}
+/* CJK faces are listed per-script so 繁 renders with PingFang HK / 微軟正黑體 and
+   简 with PingFang SC / 微软雅黑, instead of falling back to a mismatched face. */
+body{background:var(--bg);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,
+    "PingFang HK","PingFang TC","Hiragino Sans CNS","Microsoft JhengHei",
+    "PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK HK","Noto Sans CJK SC",sans-serif;
+  -webkit-font-smoothing:antialiased}
+:root:lang(zh-Hans-CN) body,html[lang="zh-Hans-CN"] body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,
+    "PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif}
+/* Chinese text is denser — give tables a touch more room */
+html[lang^="zh"] td,html[lang^="zh"] th{letter-spacing:.01em}
 
 .topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;
   padding:14px 22px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
@@ -23,7 +34,13 @@ body{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacS
 .logo{width:38px;height:38px;display:grid;place-items:center;background:var(--brand);color:#fff;border-radius:10px;font-size:20px;font-weight:700}
 .brand h1{margin:0;font-size:18px;letter-spacing:-.2px}
 .tagline{margin:0;color:var(--muted);font-size:12.5px}
+.topright{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
 .stats{display:flex;gap:8px;flex-wrap:wrap}
+.lang{display:inline-flex;background:var(--bg);border:1px solid var(--line);border-radius:9px;overflow:hidden;flex:none}
+.lang button{font:inherit;font-size:13px;font-weight:700;border:0;background:transparent;color:var(--muted);
+  padding:7px 11px;cursor:pointer;line-height:1.2}
+.lang button.on{background:var(--brand);color:#fff}
+.lang button:hover:not(.on){color:var(--brand-ink)}
 .pill{background:var(--brand-soft);color:var(--brand-ink);padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:600;white-space:nowrap}
 
 main{max-width:1180px;margin:0 auto;padding:18px 22px 60px}
@@ -51,7 +68,7 @@ input:focus,select:focus,.seg button:focus-visible{outline:2px solid var(--brand
 .hint{color:var(--muted);font-size:12.5px}
 .table-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:auto;box-shadow:var(--shadow)}
 table{width:100%;border-collapse:collapse;font-size:14px;table-layout:fixed}
-col.c-ins{width:17%}col.c-plan{width:30%}col.c-lvl{width:16%}col.c-type{width:8%}col.c-prem{width:12%}col.c-stat{width:12%}col.c-act{width:6%}
+col.c-ins{width:15%}col.c-plan{width:29%}col.c-lvl{width:14%}col.c-type{width:8%}col.c-prem{width:12%}col.c-stat{width:16%}col.c-act{width:6%}
 th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 td:first-child{font-weight:600}
 th{position:sticky;top:0;background:var(--panel);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);cursor:pointer;user-select:none;z-index:1}
@@ -65,6 +82,8 @@ td.level{color:var(--muted)}
 .premium small{font-weight:500;color:var(--muted)}
 .type-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--bg);color:var(--muted);border:1px solid var(--line)}
 
+/* status cell: let the badges wrap rather than clip (Chinese labels are wider) */
+#resultsTable tbody td:nth-child(7){white-space:normal;line-height:1.9}
 .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;display:inline-block}
 .badge.ok{background:var(--ok-soft);color:var(--ok)}
 .badge.warn{background:var(--warn-soft);color:var(--warn)}

@@ -5,6 +5,7 @@
 let db = null;
 let PRODUCTS = [];        // all products (rows)
 let LAST_RESULTS = [];    // current sorted result set (for export)
+let CURRENT_PID = null;   // product shown in the drawer (re-rendered on language switch)
 const state = {
   age: 35, gender: 'M', freq: 'annual', currency: 'HKD', smoker: false,
   search: '', insurer: '', ptype: '', openOnly: true, smmOnly: false,
@@ -23,17 +24,33 @@ function money(v, cur) {
   const sym = cur === 'USD' ? 'US$' : 'HK$';
   return sym + Math.round(v).toLocaleString('en-US');
 }
+// ---- language-aware field pickers ----
+const sfx = () => (LANG === 'hk' ? '_zh_hk' : LANG === 'cn' ? '_zh_cn' : '_en');
+const pick = (p, base) => (p[base + sfx()] || p[base + '_en'] || '');
+const pName = p => pick(p, 'plan_name');
+const pCompany = p => pick(p, 'company');
+const pLevel = p => pick(p, 'plan_level');
+const pPlanDoc = p => (LANG === 'en' ? p.plan_doc_url_en : (p.plan_doc_url_zh_hk || p.plan_doc_url_en));
+const pPremDoc = p => (LANG === 'en' ? p.premium_doc_url_en : (p.premium_doc_url_zh_hk || p.premium_doc_url_en));
+// secondary line under the plan name: show the other script for cross-reference
+const pAlt = p => (LANG === 'en' ? (p.plan_name_zh_hk || '') : p.plan_name_en);
+
 function shortInsurer(n) {
+  if (LANG !== 'en') return n.replace(/（[^）]*）/g, '').replace(/有限公司$/, '').trim() || n;
   return n.replace(/\s*\([^)]*\)/g, '')
     .replace(/\b(Company|Limited|Ltd\.?|Insurance|Assurance|International)\b/gi, ' ')
     .replace(/\s{2,}/g, ' ').trim();
 }
-function statusBadge(p) {
+function statusText(p) {
   const s = p.status || '';
-  if (s.indexOf('De-registered') === 0) return '<span class="badge bad">De-registered</span>';
-  if (s.indexOf('Renewal') === 0) return '<span class="badge warn">Renewal only</span>';
-  if (s === 'Unavailable') return '<span class="badge warn">Unavailable</span>';
-  return '<span class="badge ok">Open</span>';
+  if (s.indexOf('De-registered') === 0) return ['bad', tr('stDereg')];
+  if (s.indexOf('Renewal') === 0) return ['warn', tr('stRenewal')];
+  if (s === 'Unavailable') return ['warn', tr('stUnavail')];
+  return ['ok', tr('stOpen')];
+}
+function statusBadge(p) {
+  const [cls, txt] = statusText(p);
+  return `<span class="badge ${cls}">${txt}</span>`;
 }
 
 // ---- indicative premium for the current client, per product ----
@@ -84,7 +101,11 @@ function computeResults() {
     if (state.insurer && p.company_en !== state.insurer) continue;
     if (state.search) {
       const s = state.search.toLowerCase();
-      if (!(p.plan_name_en + ' ' + p.company_en + ' ' + p.plan_level_en).toLowerCase().includes(s)) continue;
+      // search every language so a Chinese query finds an English-named plan too
+      const hay = [p.plan_name_en, p.plan_name_zh_hk, p.plan_name_zh_cn, p.company_en,
+                   p.company_zh_hk, p.company_zh_cn, p.plan_level_en, p.plan_level_zh_hk,
+                   p.plan_level_zh_cn].join(' ').toLowerCase();
+      if (!hay.includes(s)) continue;
     }
     const prem = byProd[p.product_id] ? pickPremium(byProd[p.product_id]) : null;
     results.push({ ...p, premium: prem });
@@ -98,26 +119,27 @@ function render() {
   results.sort((a, b) => {
     let av, bv;
     if (k === 'premium') { av = a.premium ?? Infinity; bv = b.premium ?? Infinity; }
-    else if (k === 'company') { av = a.company_en; bv = b.company_en; }
-    else if (k === 'plan') { av = a.plan_name_en; bv = b.plan_name_en; }
-    else { av = a.plan_level_en; bv = b.plan_level_en; }
+    else if (k === 'company') { av = pCompany(a); bv = pCompany(b); }
+    else if (k === 'plan') { av = pName(a); bv = pName(b); }
+    else { av = pLevel(a); bv = pLevel(b); }
     return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
   });
 
   LAST_RESULTS = results;
-  $('#resultCount').textContent = `${results.length} plan${results.length === 1 ? '' : 's'}`;
+  $('#resultCount').textContent = tr('plans', results.length);
   const body = $('#resultsBody');
-  if (!results.length) { body.innerHTML = '<tr><td colspan="8" class="empty">No plans match these filters.</td></tr>'; updateCmpBar(); return; }
+  if (!results.length) { body.innerHTML = `<tr><td colspan="8" class="empty">${tr('noMatch')}</td></tr>`; updateCmpBar(); return; }
+  const typeLbl = t => (t === 'Standard' ? tr('standard') : tr('flexi'));
   body.innerHTML = results.map(r => `
     <tr data-id="${r.product_id}">
-      <td class="chkcell"><input type="checkbox" ${state.compare.has(r.product_id) ? 'checked' : ''} aria-label="Compare"></td>
-      <td title="${r.company_en}">${shortInsurer(r.company_en)}</td>
-      <td><div class="plan-name">${r.plan_name_en}</div>${r.plan_name_zh_hk ? `<div class="plan-zh">${r.plan_name_zh_hk}</div>` : ''}</td>
-      <td class="level">${r.plan_level_en || ''}</td>
-      <td><span class="type-tag">${r.plan_type}</span></td>
-      <td class="num premium">${r.premium == null ? '—' : money(r.premium, r.currency)}${r.premium != null ? '<small>/' + (state.freq === 'annual' ? 'yr' : 'mo') + '</small>' : ''}</td>
-      <td>${statusBadge(r)}${r.tax_deductible ? ' <span class="badge tax">Tax✓</span>' : ''}</td>
-      <td><span class="linkbtn">Details ›</span></td>
+      <td class="chkcell"><input type="checkbox" ${state.compare.has(r.product_id) ? 'checked' : ''} aria-label="${tr('compare')}"></td>
+      <td title="${pCompany(r)}">${shortInsurer(pCompany(r))}</td>
+      <td><div class="plan-name">${pName(r)}</div>${pAlt(r) ? `<div class="plan-zh">${pAlt(r)}</div>` : ''}</td>
+      <td class="level">${pLevel(r)}</td>
+      <td><span class="type-tag">${typeLbl(r.plan_type)}</span></td>
+      <td class="num premium">${r.premium == null ? '—' : money(r.premium, r.currency)}${r.premium != null ? '<small>' + (state.freq === 'annual' ? tr('perYr') : tr('perMo')) + '</small>' : ''}</td>
+      <td>${statusBadge(r)}${r.tax_deductible ? ` <span class="badge tax">${tr('tax')}</span>` : ''}</td>
+      <td><span class="linkbtn">${tr('details')} ›</span></td>
     </tr>`).join('');
   body.querySelectorAll('tr[data-id]').forEach(tr => {
     const cb = tr.querySelector('.chkcell input');
@@ -136,9 +158,9 @@ function updateCmpBar() {
   const n = state.compare.size, bar = $('#cmpbar');
   bar.hidden = n === 0;
   if (!n) return;
-  $('#cmpCount').textContent = `${n} selected`;
+  $('#cmpCount').textContent = LANG === 'en' ? `${n} ${tr('selected')}` : `${n} ${tr('selected')}`;
   $('#cmpNames').textContent = [...state.compare]
-    .map(id => (PRODUCTS.find(p => p.product_id === id) || {}).plan_name_en || id).join(' · ');
+    .map(id => { const p = PRODUCTS.find(x => x.product_id === id); return p ? pName(p) : id; }).join(' · ');
 }
 
 // ---- benefit ordering ----
@@ -164,14 +186,14 @@ function benefitOrder(a, b) {
 }
 function sectionTag(code) {
   const r = sectionRank(code);
-  return r === 0 ? '' : '<span class="sec">supp</span> ';
+  return r === 0 ? '' : `<span class="sec">${tr('supp')}</span> `;
 }
 
 // ---- detail drawer ----
 const AGES = [1, 20, 30, 40, 50, 60, 70, 80];
 function openDrawer(pid) {
   const p = PRODUCTS.find(x => x.product_id === pid);
-  const base = 'https://www.vhis.gov.hk';
+  CURRENT_PID = pid;
   // premium curve for the current gender selection
   const g = state.gender;
   const curve = q(
@@ -208,59 +230,64 @@ function openDrawer(pid) {
         if (!byItem.has(b.code)) byItem.set(b.code, { name: b.name, code: b.code, v: {} });
         byItem.get(b.code).v[b.column] = b.raw || '';
       });
-      benefitHtml = `<table class="mini benefit"><thead><tr><th>Benefit</th>${
+      benefitHtml = `<table class="mini benefit"><thead><tr><th>${tr('benefit')}</th>${
         cols.map(c => `<th class="num">${c}</th>`).join('')}</tr></thead><tbody>${
         [...byItem.values()].map(it => {
           const hasTier = cols.some(c => it.v[c]);
           const cells = hasTier
-            ? cols.map(c => `<td class="num">${it.v[c] || '—'}</td>`).join('')
-            : `<td class="num" colspan="${cols.length}">${it.v['limit'] || '—'}</td>`;
-          return `<tr><td>${sectionTag(it.code)}${it.name}</td>${cells}</tr>`;
+            ? cols.map(c => `<td class="num">${trLimit(it.v[c]) || '—'}</td>`).join('')
+            : `<td class="num" colspan="${cols.length}">${trLimit(it.v['limit']) || '—'}</td>`;
+          return `<tr><td>${sectionTag(it.code)}${trBenefitName(it.code, it.name)}</td>${cells}</tr>`;
         }).join('')}</tbody></table>`;
     } else {
       benefitHtml = `<table class="mini benefit"><tbody>${benefits.map(b =>
-        `<tr><td>${sectionTag(b.code)}${b.name}</td><td class="num">${b.raw || '—'}</td></tr>`).join('')}</tbody></table>`;
+        `<tr><td>${sectionTag(b.code)}${trBenefitName(b.code, b.name)}</td><td class="num">${trLimit(b.raw) || '—'}</td></tr>`).join('')}</tbody></table>`;
     }
     const sched = q(`SELECT annual_benefit_limit, lifetime_benefit_limit FROM benefit_schedules
       WHERE schedule_hash=(SELECT schedule_hash FROM product_benefit WHERE product_id=?)`, [pid])[0];
     if (sched) benefitHtml = `<table class="mini"><tbody>
-      <tr><td><b>Annual benefit limit</b></td><td class="num">${sched.annual_benefit_limit || '—'}</td></tr>
-      <tr><td><b>Lifetime benefit limit</b></td><td class="num">${sched.lifetime_benefit_limit || '—'}</td></tr>
+      <tr><td><b>${tr('annualLimit')}</b></td><td class="num">${trLimit(sched.annual_benefit_limit) || '—'}</td></tr>
+      <tr><td><b>${tr('lifetimeLimit')}</b></td><td class="num">${trLimit(sched.lifetime_benefit_limit) || '—'}</td></tr>
       </tbody></table>` + benefitHtml;
   } else {
-    benefitHtml = `<p class="note">Structured benefit schedule not yet extracted for this plan — open the plan document below for full coverage limits.</p>`;
+    benefitHtml = `<p class="note">${tr('noBenefits')}</p>`;
   }
 
+  const gTxt = state.gender === 'M' ? tr('male') : tr('female');
+  const sTxt = state.smoker ? tr('smoker') : tr('nonSmoker');
+  const typeLbl = p.plan_type === 'Standard' ? tr('standard') : tr('flexi');
+  const planDoc = pPlanDoc(p), premDoc = pPremDoc(p);
+
   $('#drawerContent').innerHTML = `
-    <h2 class="d-title">${p.plan_name_en}</h2>
-    <p class="d-sub">${p.company_en}${p.plan_level_en ? ' · ' + p.plan_level_en : ''} · ${p.currency}</p>
+    <h2 class="d-title">${pName(p)}</h2>
+    <p class="d-sub">${pCompany(p)}${pLevel(p) ? ' · ' + pLevel(p) : ''} · ${p.currency}</p>
     <div class="d-badges">
-      <span class="type-tag">${p.plan_type} Plan</span>${statusBadge(p)}
-      ${p.tax_deductible ? '<span class="badge tax">Tax-deductible</span>' : ''}
+      <span class="type-tag">${typeLbl}</span>${statusBadge(p)}
+      ${p.tax_deductible ? `<span class="badge tax">${tr('taxFull')}</span>` : ''}
       ${p.has_smm ? '<span class="badge tax">SMM</span>' : ''}
     </div>
 
     <div class="d-quote">
-      <span>Age ${state.age} · ${state.gender === 'M' ? 'Male' : 'Female'} · ${state.smoker ? 'Smoker' : 'Non-smoker'}</span>
+      <span>${tr('age')} ${state.age} · ${gTxt} · ${sTxt}</span>
       <b>${nowPrem == null ? '—' : money(nowPrem, p.currency)}</b>
-      <span>/ ${state.freq === 'annual' ? 'year' : 'month'}</span>
+      <span>/ ${state.freq === 'annual' ? tr('year') : tr('month')}</span>
     </div>
 
-    <div class="d-section">Premium by age (${state.gender === 'M' ? 'male' : 'female'}, ${state.smoker ? 'smoker' : 'non-smoker'})</div>
-    <table class="mini"><thead><tr><th>Age</th><th class="num">Annual</th><th class="num">Monthly</th></tr></thead>
+    <div class="d-section">${tr('premiumByAge')} (${gTxt}, ${sTxt})</div>
+    <table class="mini"><thead><tr><th>${tr('tblAge')}</th><th class="num">${tr('annual')}</th><th class="num">${tr('monthly')}</th></tr></thead>
       <tbody>${AGES.map(a => `<tr><td>${a}</td><td class="num">${money(at(a, 'annual'), p.currency)}</td><td class="num">${money(at(a, 'monthly'), p.currency)}</td></tr>`).join('')}</tbody>
     </table>
-    <p class="note">Non-guaranteed; excludes the Insurance Authority levy. Deductible/region variants may price differently — see the premium document.</p>
+    <p class="note">${tr('premiumNote')}</p>
 
-    <div class="d-section">Benefit schedule</div>
+    <div class="d-section">${tr('benefitSchedule')}</div>
     ${benefitHtml}
 
-    <div class="d-section">Official documents</div>
+    <div class="d-section">${tr('officialDocs')}</div>
     <div class="doclinks">
-      ${p.plan_doc_url_en ? `<a href="${base}${p.plan_doc_url_en.startsWith('http') ? '' : ''}${p.plan_doc_url_en.replace(base, '')}" target="_blank" rel="noopener">Plan document ↗</a>` : ''}
-      ${p.premium_doc_url_en ? `<a href="${p.premium_doc_url_en}" target="_blank" rel="noopener">Premium table ↗</a>` : ''}
+      ${planDoc ? `<a href="${planDoc}" target="_blank" rel="noopener">${tr('planDoc')} ↗</a>` : ''}
+      ${premDoc ? `<a href="${premDoc}" target="_blank" rel="noopener">${tr('premiumDoc')} ↗</a>` : ''}
     </div>
-    <p class="note">Certified ${p.plan_date_en || ''}${p.earliest_plan_date_en ? ' · earliest ' + p.earliest_plan_date_en : ''}. ID ${p.product_id}</p>`;
+    <p class="note">${tr('certified')} ${p.plan_date_en || ''}${p.earliest_plan_date_en ? ' · ' + tr('earliest') + ' ' + p.earliest_plan_date_en : ''} · ID ${p.product_id}</p>`;
 
   $('#drawer').hidden = false; $('#drawerBackdrop').hidden = false;
 }
@@ -278,40 +305,43 @@ function benefitsFor(pid) {
   const m = {}; rows.forEach(r => { if (!m[r.code]) m[r.code] = r; }); return m;
 }
 const CMP_AGES = [30, 50, 65];
-const CMP_BENEFITS = [['a', 'Room & board'], ['b', 'Miscellaneous'], ['e', 'Intensive care'],
-                      ['f', "Surgeon's fee"], ['i', 'Diagnostic imaging'], ['j', 'Cancer treatment']];
+const CMP_BENEFITS = [['a', 'bRoom'], ['b', 'bMisc'], ['e', 'bIcu'],
+                      ['f', 'bSurgeon'], ['i', 'bImaging'], ['j', 'bCancer']];
 
 function compareRows() {
   const plans = [...state.compare].map(id => PRODUCTS.find(p => p.product_id === id)).filter(Boolean);
   const ben = plans.map(p => benefitsFor(p.product_id));
+  const gShort = state.gender === 'M' ? tr('male') : tr('female');
   const R = [];
-  R.push(['Insurer', plans.map(p => p.company_en)]);
-  R.push(['Level', plans.map(p => p.plan_level_en || '—')]);
-  R.push(['Type', plans.map(p => p.plan_type + ' Plan')]);
-  R.push(['Currency', plans.map(p => p.currency)]);
-  R.push(['Status', plans.map(p => p.status)]);
-  R.push([`Premium — age ${state.age} ${state.gender === 'M' ? 'M' : 'F'} (annual)`,
+  R.push([tr('rowInsurer'), plans.map(p => pCompany(p))]);
+  R.push([tr('rowLevel'), plans.map(p => pLevel(p) || '—')]);
+  R.push([tr('rowType'), plans.map(p => p.plan_type === 'Standard' ? tr('standard') : tr('flexi'))]);
+  R.push([tr('rowCurrency'), plans.map(p => p.currency)]);
+  R.push([tr('rowStatus'), plans.map(p => statusText(p)[1])]);
+  R.push([tr('rowPremAnnual', state.age, gShort),
           plans.map(p => money(premiumFor(p.product_id, state.age, 'annual'), p.currency)), 'big']);
-  R.push([`Premium — age ${state.age} (monthly)`,
+  R.push([tr('rowPremMonthly', state.age),
           plans.map(p => money(premiumFor(p.product_id, state.age, 'monthly'), p.currency))]);
-  CMP_AGES.forEach(a => R.push([`Annual @ age ${a}`,
+  CMP_AGES.forEach(a => R.push([tr('rowAnnualAt', a),
     plans.map(p => money(premiumFor(p.product_id, a, 'annual'), p.currency))]));
-  CMP_BENEFITS.forEach(([code, label]) => {
-    if (ben.some(b => b[code])) R.push([label, ben.map(b => (b[code] && b[code].raw) || '—')]);
+  CMP_BENEFITS.forEach(([code, key]) => {
+    if (ben.some(b => b[code])) R.push([tr(key), ben.map(b => trLimit(b[code] && b[code].raw) || '—')]);
   });
-  R.push(['Tax-deductible', plans.map(p => p.tax_deductible ? 'Yes' : '—')]);
+  R.push([tr('rowTax'), plans.map(p => p.tax_deductible ? tr('yes') : '—')]);
   return { plans, R };
 }
 
 function openCompare() {
   if (!state.compare.size) return;
   const { plans, R } = compareRows();
-  $('#cmpTitle').textContent = `Comparison — age ${state.age}, ${state.gender === 'M' ? 'male' : 'female'}, ${state.smoker ? 'smoker' : 'non-smoker'}`;
+  const gTxt = state.gender === 'M' ? tr('male') : tr('female');
+  const sTxt = state.smoker ? tr('smoker') : tr('nonSmoker');
+  $('#cmpTitle').textContent = tr('cmpTitle', state.age, gTxt, sTxt);
   $('#cmpBody').innerHTML = `
-    <div class="print-head"><h2>VHIS plan comparison</h2>
-      <p>Client: age ${state.age} · ${state.gender === 'M' ? 'Male' : 'Female'} · ${state.smoker ? 'Smoker' : 'Non-smoker'} · ${state.currency}. Premiums non-guaranteed, excl. IA levy.</p></div>
+    <div class="print-head"><h2>${tr('comparison')}</h2>
+      <p>${tr('age')} ${state.age} · ${gTxt} · ${sTxt} · ${state.currency}</p></div>
     <table class="cmp-table"><thead><tr><th></th>${plans.map(p =>
-      `<th class="cmp-plan">${p.plan_name_en}<small>${p.plan_name_zh_hk || ''}</small></th>`).join('')}</tr></thead>
+      `<th class="cmp-plan">${pName(p)}<small>${pAlt(p) || ''}</small></th>`).join('')}</tr></thead>
       <tbody>${R.map(([label, vals, cls]) =>
         `<tr><th>${label}</th>${vals.map(v => `<td class="${cls === 'big' ? 'big' : 'num'}">${v}</td>`).join('')}</tr>`).join('')}
       </tbody></table>`;
@@ -328,25 +358,88 @@ function csvDownload(name, rows) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 function clientHeader() {
-  return [['VHIS quote'], ['Client age', state.age], ['Gender', state.gender === 'M' ? 'Male' : 'Female'],
-          ['Smoker', state.smoker ? 'Yes' : 'No'], ['Frequency', state.freq], ['Currency', state.currency],
-          ['Generated', new Date().toLocaleString()], ['Note', 'Premiums non-guaranteed; exclude IA levy.'], []];
+  return [[tr('quoteTitle')], [tr('age'), state.age],
+          [tr('rowInsurer') === 'Insurer' ? 'Gender' : '性別', state.gender === 'M' ? tr('male') : tr('female')],
+          [tr('smoker'), state.smoker ? tr('yes') : '—'],
+          [state.freq === 'annual' ? tr('annual') : tr('monthly'), ''],
+          [tr('rowCurrency'), state.currency],
+          [tr('csvGenerated'), new Date().toLocaleString()],
+          [tr('csvNote'), tr('footDisc')], []];
 }
 function exportResultsCsv() {
   const rows = clientHeader();
-  rows.push(['Insurer', 'Plan', 'Chinese name', 'Level', 'Type', 'Currency',
-             `Premium (${state.freq})`, 'Status', 'Tax-deductible', 'Plan document']);
-  LAST_RESULTS.forEach(r => rows.push([r.company_en, r.plan_name_en, r.plan_name_zh_hk, r.plan_level_en,
-    r.plan_type, r.currency, r.premium == null ? '' : Math.round(r.premium), r.status,
-    r.tax_deductible ? 'Yes' : '', r.plan_doc_url_en]));
+  rows.push([tr('thInsurer'), tr('thPlan'), 'EN', tr('thLevel'), tr('thType'), tr('rowCurrency'),
+             `${tr('thPremium')} (${state.freq === 'annual' ? tr('annual') : tr('monthly')})`,
+             tr('thStatus'), tr('rowTax'), tr('planDoc')]);
+  LAST_RESULTS.forEach(r => rows.push([pCompany(r), pName(r), r.plan_name_en, pLevel(r),
+    r.plan_type, r.currency, r.premium == null ? '' : Math.round(r.premium), statusText(r)[1],
+    r.tax_deductible ? tr('yes') : '', pPlanDoc(r)]));
   csvDownload(`vhis-quote-age${state.age}-${state.gender}.csv`, rows);
 }
 function exportCompareCsv() {
   const { plans, R } = compareRows();
   const rows = clientHeader();
-  rows.push(['', ...plans.map(p => p.plan_name_en)]);
+  rows.push(['', ...plans.map(p => pName(p))]);
   R.forEach(([label, vals]) => rows.push([label, ...vals]));
   csvDownload(`vhis-comparison-age${state.age}.csv`, rows);
+}
+
+// ---- language ----
+// Re-label the static chrome. Everything data-driven re-renders via render().
+function applyLang() {
+  document.documentElement.lang = tr('htmlLang');
+  const set = (sel, txt) => { const e = $(sel); if (e) e.textContent = txt; };
+  document.title = tr('title') + ' — VHIS';
+  set('.brand h1', tr('title'));
+  set('.tagline', tr('tagline'));
+  set('.control-group.client h2', tr('client'));
+  set('.control-group.filters h2', tr('filter'));
+  const ageLbl = $('#age').parentElement;
+  ageLbl.childNodes[0].nodeValue = tr('age') + ' ';
+  const segTxt = (id, vals) => $('#' + id).querySelectorAll('button')
+    .forEach((b, i) => b.textContent = vals[i]);
+  segTxt('gender', [tr('male'), tr('female')]);
+  segTxt('freq', [tr('annual'), tr('monthly')]);
+  segTxt('ptype', [tr('all'), tr('standard'), tr('flexi')]);
+  $('#smoker').parentElement.lastChild.nodeValue = ' ' + tr('smoker');
+  $('#openOnly').parentElement.lastChild.nodeValue = ' ' + tr('sellableOnly');
+  $('#smmOnly').parentElement.lastChild.nodeValue = ' ' + tr('withSmm');
+  $('#search').placeholder = tr('searchPh');
+  $('#insurer').options[0].textContent = tr('allInsurers');
+  set('.hint', tr('hint'));
+  set('#exportCsv', tr('exportCsv')); set('#printQuote', tr('printPdf'));
+  set('#cmpOpen', tr('compare')); set('#cmpClear', tr('clear'));
+  set('#cmpCsv', tr('exportCsv')); set('#cmpPrint', tr('printPdf')); set('#cmpClose', tr('close'));
+  const th = document.querySelectorAll('#resultsTable thead th');
+  const heads = [null, tr('thInsurer'), tr('thPlan'), tr('thLevel'), tr('thType'),
+                 tr('thPremium'), tr('thStatus'), null];
+  heads.forEach((h, i) => { if (h && th[i]) th[i].textContent = h; });
+  markSortHeader();
+  const foot = document.querySelectorAll('.foot span');
+  if (foot[0]) foot[0].textContent = tr('footSource');
+  if (foot[2]) foot[2].textContent = tr('footDisc');
+  // insurer dropdown labels follow the language
+  const sel = $('#insurer'), keep = sel.value;
+  [...sel.options].slice(1).forEach(o => { const p = PRODUCTS.find(x => x.company_en === o.value); if (p) o.textContent = pCompany(p); });
+  sel.value = keep;
+  document.querySelectorAll('.lang button').forEach(b =>
+    b.classList.toggle('on', b.dataset.l === LANG));
+  document.querySelectorAll('[data-k]').forEach(e => e.textContent = tr(e.dataset.k));
+}
+function markSortHeader() {
+  document.querySelectorAll('th[data-sort]').forEach(x => {
+    x.textContent = x.textContent.replace(/ [▲▼]/, '');
+    if (x.dataset.sort === state.sortKey) x.textContent += state.sortDir === 1 ? ' ▲' : ' ▼';
+  });
+}
+function setLang(l) {
+  if (!LANGS.includes(l) || l === LANG) return;
+  LANG = l;
+  try { localStorage.setItem('vhis_lang', l); } catch (e) { /* private mode */ }
+  applyLang();
+  render();
+  if (!$('#drawer').hidden && CURRENT_PID) openDrawer(CURRENT_PID);
+  if (!$('#cmpOverlay').hidden) openCompare();
 }
 
 // ---- wiring ----
@@ -381,12 +474,13 @@ function wire() {
   });
   document.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', () => {
     const k = th.dataset.sort;
-    state.sortDir = (state.sortKey === k) ? -state.sortDir : (k === 'premium' ? 1 : 1);
+    state.sortDir = (state.sortKey === k) ? -state.sortDir : 1;
     state.sortKey = k;
-    document.querySelectorAll('th[data-sort]').forEach(x => x.textContent = x.textContent.replace(/ [▲▼]/, ''));
-    th.textContent += state.sortDir === 1 ? ' ▲' : ' ▼';
+    markSortHeader();
     render();
   }));
+  document.querySelectorAll('.lang button').forEach(b =>
+    b.addEventListener('click', () => setLang(b.dataset.l)));
 }
 
 // The database ships gzipped (22 MB → ~3.5 MB) so the hosted demo loads fast.
@@ -412,17 +506,19 @@ async function main() {
   // flags are stored as TEXT "0"/"1" (both truthy in JS) — coerce to numbers
   PRODUCTS.forEach(p => { p.has_smm = +p.has_smm; p.tax_deductible = +p.tax_deductible; p.de_registered = +p.de_registered; });
 
-  // header stats
+  // header stats (insurer <option> values stay English = stable keys)
   const open = PRODUCTS.filter(p => p.status === 'Open').length;
   const insurers = [...new Set(PRODUCTS.map(p => p.company_en))].sort();
   $('#headerStats').innerHTML =
-    `<span class="pill">${open} sellable plans</span><span class="pill">${insurers.length} insurers</span>` +
-    `<span class="pill">${PRODUCTS.length} products</span>`;
+    `<span class="pill">${open} <span data-k="sellablePlans"></span></span>` +
+    `<span class="pill">${insurers.length} <span data-k="insurers"></span></span>` +
+    `<span class="pill">${PRODUCTS.length} <span data-k="products"></span></span>`;
   const sel = $('#insurer');
   insurers.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
-  $('#dataMeta').textContent = 'Standard-plan benefits shown in full; Flexi benefits via plan document.';
+  $('#dataMeta').textContent = '';
 
   wire();
+  applyLang();
   render();
   const l = document.querySelector('.loading'); if (l) l.remove();
 }
