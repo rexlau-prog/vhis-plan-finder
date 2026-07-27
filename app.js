@@ -414,7 +414,10 @@ function gapFor(pid, bench) {
   // understated ~7.8x. The HK dollar is pegged, so a fixed rate is appropriate.
   const fx = p.currency === 'USD' ? USD_HKD : 1;
   const so = scheduleOpts(pid);
-  const opts = { surgicalCategory: cat.category, days: 2,
+  // Use the hospitals' own published average length of stay; only fall back to
+  // a nominal 2 days when none is published.
+  const days = bench.stay_days || 2;
+  const opts = { surgicalCategory: cat.category, days,
                  annualLimit: so.annualLimit != null ? so.annualLimit * fx : null,
                  deductible: so.deductible != null ? so.deductible * fx : null };
   // scale the plan's own item caps into HKD too
@@ -431,7 +434,8 @@ function gapFor(pid, bench) {
   const at = (total) => estimateGap({ ...bench, total_median: total }, scaled, opts);
   const lo = at(bench.total_low), mid = at(bench.total_median), hi = at(bench.total_high);
   if (!mid) return null;
-  return { lo, mid, hi, category: cat.category, ambiguous: cat.ambiguous, fx };
+  return { lo, mid, hi, category: cat.category, ambiguous: cat.ambiguous, fx,
+           days, daysPublished: bench.stay_days != null };
 }
 
 // ---- compare ----

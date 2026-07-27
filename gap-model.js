@@ -17,11 +17,18 @@
    MODEL, so every result carries `assumptions` and must be labelled indicative.
 */
 
-// How a typical surgical episode's bill divides across benefit items.
-// Doctor's fee  -> surgeon (f) + anaesthetist (g)
-// Hospital bill -> theatre (h) + room (a) + miscellaneous (b)
+// How a surgical episode's bill divides across benefit items.
+//
+// The DOCTOR split is derived, not guessed: in Hong Kong the anaesthetist is
+// conventionally billed at ~35% of the surgeon's fee — the same basis VHIS
+// itself uses for the anaesthetist benefit. So of the published doctor's fee,
+// surgeon = 1/1.35 and anaesthetist = 0.35/1.35.
+const ANAES_PCT = 0.35;
 const SPLIT = {
-  doctor: { f: 0.75, g: 0.25 },
+  doctor: { f: 1 / (1 + ANAES_PCT), g: ANAES_PCT / (1 + ANAES_PCT) },  // ≈ .741 / .259
+  // The HOSPITAL split remains MODELLED — hospitals publish a single combined
+  // hospital charge and do not break out theatre vs room vs sundries. Room is
+  // computed from the published length of stay where available (see roomShare).
   hospital: { h: 0.30, a: 0.25, b: 0.45 },
 };
 
@@ -115,7 +122,8 @@ function estimateGap(bench, items, opts = {}) {
     assumptions: [
       `surgical category: ${ctx.surgicalCategory}`,
       `length of stay: ${ctx.days} day(s)`,
-      "bill apportioned across benefit items (doctor 75/25 surgeon:anaesthetist; hospital 30/25/45 theatre:room:misc)",
+      `doctor's fee split surgeon:anaesthetist at ${(SPLIT.doctor.f * 100).toFixed(0)}:${(SPLIT.doctor.g * 100).toFixed(0)} (anaesthetist billed at ${ANAES_PCT * 100}% of surgeon, the VHIS basis)`,
+      'hospital charge apportioned theatre:room:misc 30:25:45 — MODELLED, hospitals publish only a combined figure',
       'per-item caps, then coinsurance, then deductible, then annual limit',
       'indicative only — the insurer assesses each claim on the actual itemised bill',
     ],
