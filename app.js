@@ -11,6 +11,7 @@ const state = {
   search: '', insurer: '', ptype: '', openOnly: true, smmOnly: false,
   sortKey: 'premium', sortDir: 1,
   compare: new Set(),     // product_ids selected for side-by-side
+  gapProc: '',            // benchmark procedure for the coverage-gap estimate
 };
 
 // ---- helpers ----
@@ -282,6 +283,16 @@ function openDrawer(pid) {
     <div class="d-section">${tr('benefitSchedule')}</div>
     ${benefitHtml}
 
+    <div class="d-section">${tr('clientLink')}</div>
+    <div class="clientlink">
+      <p class="note">${tr('clientLinkNote')}</p>
+      <div class="cl-row">
+        <input id="clAgent" placeholder="${tr('yourName')}" value="${localStorage.getItem('vhis_agent') || ''}" />
+        <button class="btn primary" id="clCopy">${tr('copyLink')}</button>
+      </div>
+      <code class="cl-url" id="clUrl"></code>
+    </div>
+
     <div class="d-section">${tr('officialDocs')}</div>
     <div class="doclinks">
       ${planDoc ? `<a href="${planDoc}" target="_blank" rel="noopener">${tr('planDoc')} ↗</a>` : ''}
@@ -289,9 +300,139 @@ function openDrawer(pid) {
     </div>
     <p class="note">${tr('certified')} ${p.plan_date_en || ''}${p.earliest_plan_date_en ? ' · ' + tr('earliest') + ' ' + p.earliest_plan_date_en : ''} · ID ${p.product_id}</p>`;
 
+  // client share link: the plan travels in the URL, so there is no client
+  // record to store and no personal data held by this app.
+  const mkUrl = () => {
+    const who = ($('#clAgent').value || '').trim();
+    const base = location.href.replace(/[^/]*$/, '') + 'advisor.html';
+    return `${base}?p=${encodeURIComponent(pid)}${who ? '&a=' + encodeURIComponent(who) : ''}`;
+  };
+  const paint = () => { $('#clUrl').textContent = mkUrl(); };
+  paint();
+  $('#clAgent').addEventListener('input', e => {
+    localStorage.setItem('vhis_agent', e.target.value); paint();
+  });
+  $('#clCopy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(mkUrl()); $('#clCopy').textContent = tr('copied'); }
+    catch (e) { $('#clUrl').focus(); }
+    setTimeout(() => $('#clCopy').textContent = tr('copyLink'), 1800);
+  });
+
   $('#drawer').hidden = false; $('#drawerBackdrop').hidden = false;
 }
 function closeDrawer() { $('#drawer').hidden = true; $('#drawerBackdrop').hidden = true; }
+
+// ---- coverage gap (agent-facing, indicative) ----
+let BENCH = null;   // published private-hospital cost benchmarks
+const USD_HKD = 7.8;  // HKD is pegged (7.75–7.85); used to compare USD plans against HKD costs
+let SOSP_ROWS = null;
+
+// Pull a leading number out of a published limit string ("$420,000 per Policy Year").
+function moneyIn(s) {
+  const m = /([\d][\d,]*)(?:\.\d+)?/.exec(String(s || '').replace(/[^\d,.]/g, ' '));
+  if (!m) return null;
+  const n = parseFloat(m[1].replace(/,/g, ''));
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+/** Benefit rows for a product, keyed by item code — the shape gap-model wants. */
+function benefitRowsFor(pid) {
+  const rows = q(`SELECT bi.code, bi.amount, bi.unit, bi.max_days, bi.coinsurance_percent,
+                         bi.complex, bi.major, bi.intermediate, bi.minor, bi.raw
+                  FROM benefit_items bi JOIN product_benefit pb USING(schedule_hash)
+                  WHERE pb.product_id=?`, [pid]);
+  const out = {};
+  for (const r of rows) if (!out[r.code]) out[r.code] = r;   // first value column
+  return out;
+}
+function scheduleOpts(pid) {
+  const s = q(`SELECT annual_benefit_limit, deductible FROM benefit_schedules
+               WHERE schedule_hash=(SELECT schedule_hash FROM product_benefit WHERE product_id=?)`,
+              [pid])[0] || {};
+  // The deductible is often absent from the extracted schedule but is always
+  // named in the product's plan level ("HKD180,000 Deductible") in the
+  // Government dataset — which is authoritative for the variant. Prefer it,
+  // otherwise a deductible plan would look far more generous than it is.
+  const p = PRODUCTS.find(x => x.product_id === pid) || {};
+  const m = /(?:HKD|USD|\$)\s*([\d,]+)\s*Deductible/i.exec(p.plan_level_en || '');
+  const fromLevel = m ? parseFloat(m[1].replace(/,/g, '')) : null;
+  const deductible = (fromLevel != null && isFinite(fromLevel))
+    ? (fromLevel > 0 ? fromLevel : 0)      // "HKD0 Deductible" is a real zero
+    : moneyIn(s.deductible);
+  return { annualLimit: moneyIn(s.annual_benefit_limit), deductible };
+}
+
+// Hospitals and the Government schedule use different words for the same
+// operation ("gastroscopy" vs "Oesophagogastroduodenoscopy (OGD)"), so map the
+// benchmark name onto the schedule's terminology before matching.
+const BENCH_TO_SCHEDULE = {
+  'gastroscopy': 'Oesophagogastroduodenoscopy OGD',
+  'colposcopy': 'colposcopy vagina cervix',
+  'dilation & curettage': 'dilatation and curettage',
+  'fracture fixation (ORIF)': 'open reduction internal fixation fracture',
+  'fracture fixation (ORIF, lower limb)': 'open reduction internal fixation femur tibia',
+  'fracture fixation (ORIF, upper limb)': 'open reduction internal fixation radius humerus',
+  'TURP / prostatectomy': 'transurethral resection prostate',
+  'endoscopic sinus surgery': 'functional endoscopic sinus',
+  'breast lump excision': 'excision of breast lump',
+  'anal fistulectomy': 'anal fistulotomy fistulectomy',
+};
+// Procedures VHIS certified plans do not cover at all. Showing a "gap" for these
+// implies the plan merely fell short, when in fact nothing is payable.
+const BENCH_EXCLUDED = new Set(['caesarean section', 'vaginal delivery', 'lasik']);
+
+/**
+ * Surgical category for a benchmark procedure, via the Government schedule.
+ * Returns null when it cannot be established — the caller must NOT quietly
+ * assume a category, because the surgeon's-fee cap swings $5,000 to $50,000.
+ */
+function categoryForBenchmark(name) {
+  const m = matchProcedures(BENCH_TO_SCHEDULE[name] || name, 3);
+  if (!m.length) return null;
+  const cats = [...new Set(m.map(x => x.category))];
+  // several candidate categories => genuinely ambiguous (e.g. unilateral vs
+  // bilateral hernia). Take the LOWEST, so the estimate never overstates cover.
+  const order = ['minor', 'intermediate', 'major', 'complex'];
+  cats.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  return { category: cats[0], ambiguous: cats.length > 1, all: cats };
+}
+
+/**
+ * Gap for one plan at the low / median / high hospital. Presented as a RANGE:
+ * the same operation varies widely by hospital, and a single figure would be
+ * false precision on what is already a model.
+ */
+function gapFor(pid, bench) {
+  if (!BENCH || !bench) return null;
+  if (BENCH_EXCLUDED.has(bench.procedure)) return { excluded: true };
+  const items = benefitRowsFor(pid);
+  if (!Object.keys(items).length) return null;
+  const cat = categoryForBenchmark(bench.procedure);
+  if (!cat) return { noCategory: true };
+  const p = PRODUCTS.find(x => x.product_id === pid) || {};
+  // Benchmarks are HKD. A USD plan's limits must be converted or its cover is
+  // understated ~7.8x. The HK dollar is pegged, so a fixed rate is appropriate.
+  const fx = p.currency === 'USD' ? USD_HKD : 1;
+  const so = scheduleOpts(pid);
+  const opts = { surgicalCategory: cat.category, days: 2,
+                 annualLimit: so.annualLimit != null ? so.annualLimit * fx : null,
+                 deductible: so.deductible != null ? so.deductible * fx : null };
+  // scale the plan's own item caps into HKD too
+  const scaled = {};
+  for (const k in items) {
+    const r = items[k];
+    scaled[k] = fx === 1 ? r : { ...r,
+      amount: r.amount != null ? r.amount * fx : r.amount,
+      complex: r.complex != null ? r.complex * fx : r.complex,
+      major: r.major != null ? r.major * fx : r.major,
+      intermediate: r.intermediate != null ? r.intermediate * fx : r.intermediate,
+      minor: r.minor != null ? r.minor * fx : r.minor };
+  }
+  const at = (total) => estimateGap({ ...bench, total_median: total }, scaled, opts);
+  const lo = at(bench.total_low), mid = at(bench.total_median), hi = at(bench.total_high);
+  if (!mid) return null;
+  return { lo, mid, hi, category: cat.category, ambiguous: cat.ambiguous, fx };
+}
 
 // ---- compare ----
 function premiumFor(pid, age, freq) {
@@ -328,12 +469,51 @@ function compareRows() {
     if (ben.some(b => b[code])) R.push([tr(key), ben.map(b => trLimit(b[code] && b[code].raw) || '—')]);
   });
   R.push([tr('rowTax'), plans.map(p => p.tax_deductible ? tr('yes') : '—')]);
-  return { plans, R };
+
+  // Coverage-gap block: only when the agent has picked a procedure.
+  const bench = state.gapProc && BENCH
+    ? BENCH.procedures.find(p => p.procedure === state.gapProc) : null;
+  if (bench) {
+    const gaps = plans.map(p => gapFor(p.product_id, bench));
+    const money0 = v => (v == null ? '—' : money(v, 'HKD'));
+    const rng = (a, b) => (a == null || b == null) ? '—'
+      : (a === b ? money0(a) : `${money0(a)} – ${money0(b)}`);
+    // States that must never be shown as a number: a VHIS-excluded procedure
+    // pays nothing by definition, and an unknown surgical category would mean
+    // guessing a cap that swings $5,000–$50,000.
+    const cell = (g, pick) => !g ? '—'
+      : g.excluded ? tr('gapExcluded')
+      : g.noCategory ? tr('gapNoCategory')
+      : rng(pick(g.lo), pick(g.hi));
+    R.push([tr('gapBill'), plans.map(() => rng(bench.total_low, bench.total_high)), 'sub']);
+    R.push([tr('gapPlanPays'), gaps.map(g => cell(g, x => x && x.planPays))]);
+    R.push([tr('gapClientPays'), gaps.map(g => cell(g, x => x && x.clientPays)), 'gap']);
+    if (gaps.some(g => g && g.ambiguous)) R.push([tr('gapCatNote'), plans.map((p, i) =>
+      gaps[i] && gaps[i].ambiguous ? tr('gapCatLowest', gaps[i].category) : '—')]);
+    if (gaps.some(g => g && g.fx && g.fx !== 1)) R.push([tr('gapFx'), plans.map((p, i) =>
+      gaps[i] && gaps[i].fx !== 1 ? `USD × ${gaps[i].fx}` : '—')]);
+  }
+  return { plans, R, bench };
+}
+
+function renderGapPicker() {
+  const el = $('#gapPick');
+  if (!el || !BENCH) return;
+  if (el.options.length <= 1) {
+    BENCH.procedures.slice().sort((a, b) => a.procedure.localeCompare(b.procedure))
+      .forEach(p => {
+        const o = document.createElement('option');
+        o.value = p.procedure;
+        o.textContent = `${p.procedure} (${p.hospitals} hosp)`;
+        el.appendChild(o);
+      });
+  }
+  el.value = state.gapProc || '';
 }
 
 function openCompare() {
   if (!state.compare.size) return;
-  const { plans, R } = compareRows();
+  const { plans, R, bench } = compareRows();
   const gTxt = state.gender === 'M' ? tr('male') : tr('female');
   const sTxt = state.smoker ? tr('smoker') : tr('nonSmoker');
   $('#cmpTitle').textContent = tr('cmpTitle', state.age, gTxt, sTxt);
@@ -343,8 +523,11 @@ function openCompare() {
     <table class="cmp-table"><thead><tr><th></th>${plans.map(p =>
       `<th class="cmp-plan">${pName(p)}<small>${pAlt(p) || ''}</small></th>`).join('')}</tr></thead>
       <tbody>${R.map(([label, vals, cls]) =>
-        `<tr><th>${label}</th>${vals.map(v => `<td class="${cls === 'big' ? 'big' : 'num'}">${v}</td>`).join('')}</tr>`).join('')}
-      </tbody></table>`;
+        `<tr class="${cls === 'gap' ? 'gaprow' : cls === 'sub' ? 'subrow' : ''}"><th>${label}</th>${
+          vals.map(v => `<td class="${cls === 'big' ? 'big' : cls === 'gap' ? 'gapcell' : 'num'}">${v}</td>`).join('')}</tr>`).join('')}
+      </tbody></table>
+    ${bench ? `<p class="note gapnote">${tr('gapNote', bench.hospitals)}</p>` : ''}`;
+  renderGapPicker();
   $('#cmpOverlay').hidden = false;
 }
 
@@ -410,6 +593,7 @@ function applyLang() {
   set('#exportCsv', tr('exportCsv')); set('#printQuote', tr('printPdf'));
   set('#cmpOpen', tr('compare')); set('#cmpClear', tr('clear'));
   set('#cmpCsv', tr('exportCsv')); set('#cmpPrint', tr('printPdf')); set('#cmpClose', tr('close'));
+  set('#gapLbl', tr('gapFor'));
   const th = document.querySelectorAll('#resultsTable thead th');
   const heads = [null, tr('thInsurer'), tr('thPlan'), tr('thLevel'), tr('thType'),
                  tr('thPremium'), tr('thStatus'), null];
@@ -465,6 +649,7 @@ function wire() {
   $('#cmpClear').addEventListener('click', () => { state.compare.clear(); render(); });
   $('#cmpClose').addEventListener('click', () => { $('#cmpOverlay').hidden = true; });
   $('#cmpOverlay').addEventListener('click', e => { if (e.target.id === 'cmpOverlay') $('#cmpOverlay').hidden = true; });
+  $('#gapPick').addEventListener('change', e => { state.gapProc = e.target.value; openCompare(); });
   $('#cmpCsv').addEventListener('click', exportCompareCsv);
   $('#cmpPrint').addEventListener('click', () => window.print());
   $('#exportCsv').addEventListener('click', exportResultsCsv);
@@ -486,6 +671,18 @@ function wire() {
 // The database ships gzipped (22 MB → ~3.5 MB) so the hosted demo loads fast.
 // Prefer the .gz and inflate in the browser; fall back to the plain .db when
 // DecompressionStream is unavailable or only the raw file is present.
+// Fetch a gzipped asset and inflate it in the browser, falling back to the
+// plain file when DecompressionStream is unavailable.
+async function loadGz(gzUrl, plainUrl) {
+  if (typeof DecompressionStream === 'function') {
+    try {
+      const r = await fetch(gzUrl);
+      if (r.ok) return await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    } catch (e) { /* fall through */ }
+  }
+  return (await fetch(plainUrl)).arrayBuffer();
+}
+
 async function loadDb() {
   if (typeof DecompressionStream === 'function') {
     try {
@@ -503,6 +700,13 @@ async function main() {
   const SQL = await initSqlJs({ locateFile: f => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${f}` });
   db = new SQL.Database(new Uint8Array(await loadDb()));
   PRODUCTS = q(`SELECT * FROM products`);
+  // Cost benchmarks + the Government surgical schedule power the coverage-gap
+  // estimate. Both are small and optional — the app works without them.
+  try {
+    BENCH = JSON.parse(new TextDecoder().decode(await loadGz('cost_benchmarks.json.gz', 'cost_benchmarks.json')));
+    SOSP_ROWS = JSON.parse(new TextDecoder().decode(await loadGz('surgical_schedule.json.gz', 'surgical_schedule.json')));
+    setSurgicalSchedule(SOSP_ROWS);
+  } catch (e) { console.warn('coverage-gap data unavailable', e); }
   // flags are stored as TEXT "0"/"1" (both truthy in JS) — coerce to numbers
   PRODUCTS.forEach(p => { p.has_smm = +p.has_smm; p.tax_deductible = +p.tax_deductible; p.de_registered = +p.de_registered; });
 
