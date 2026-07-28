@@ -194,3 +194,7 @@ td.chkcell input{cursor:pointer;width:16px;height:16px}
   main{padding:14px}
   td.level{max-width:140px}
 }
+
+/* a plan that cannot be issued to a client of this age: stated, not blank */
+.unavail { color: var(--warn, #b45309); font-size: .82em; font-style: italic;
+           white-space: nowrap; cursor: help; }

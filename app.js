@@ -26,6 +26,14 @@ function money(v, cur) {
   const sym = cur === 'USD' ? 'US$' : 'HK$';
   return sym + Math.round(v).toLocaleString('en-US');
 }
+/* Render a quote from premium-model. A plan that is not open to a new applicant
+   of this age gets a stated reason, not a dash — the agent needs to know the
+   difference between "no data" and "cannot be sold to this client". */
+function quoteText(quote, cur) {
+  if (!quote) return '—';
+  if (quote.unavailable) return `<span class="unavail" title="${tr('premClosedHint')}">${tr('premClosed')}</span>`;
+  return money(quote.amount, cur);
+}
 // ---- language-aware field pickers ----
 const sfx = () => (LANG === 'hk' ? '_zh_hk' : LANG === 'cn' ? '_zh_cn' : '_en');
 const pick = (p, base) => (p[base + sfx()] || p[base + '_en'] || '');
@@ -56,40 +64,16 @@ function statusBadge(p) {
 }
 
 // ---- indicative premium for the current client, per product ----
-// Rows already filtered to the age/frequency/table_index=0. Pick the client's
-// gender (fall back to unisex), non-smoker unless smoker toggled, and combine
-// components: a single "base", else basic (+rider if present).
-function pickPremium(rows) {
-  const g = rows.some(r => r.gender === state.gender) ? state.gender : 'U';
-  const smokPref = state.smoker ? 'Y' : 'N';
-  let cand = rows.filter(r => r.gender === g);
-  const smk = cand.some(r => r.smoker === smokPref) ? smokPref : 'NA';
-  cand = cand.filter(r => r.smoker === smk || (smk === 'NA' && r.smoker === 'NA'));
-  if (!cand.length) return null;
-  // choose the section with the lowest total (indicative / entry point)
-  const bySection = {};
-  for (const r of cand) (bySection[r.section] ||= []).push(r);
-  let best = null;
-  for (const sec in bySection) {
-    const cs = bySection[sec];
-    const base = cs.find(r => r.component === 'base');
-    let total;
-    if (base) total = base.amount;
-    else {
-      const basic = cs.find(r => r.component === 'basic');
-      const rider = cs.find(r => r.component === 'rider');
-      if (basic && rider) total = basic.amount + rider.amount;
-      else total = Math.min(...cs.map(r => r.amount));
-    }
-    if (best == null || total < best) best = total;
-  }
-  return best;
-}
+// The selection rule lives in premium-model.js, which is pure and unit-tested:
+// basic and rider are alternatives rather than a sum, renewal-only rows are
+// excluded, and the entry-age band must actually admit the client.
+const quoteFor = (rows) =>
+  pickPremium(rows, { age: state.age, gender: state.gender, smoker: state.smoker });
 
 function computeResults() {
   const rows = q(
-    `SELECT p.product_id, p.gender, p.smoker, p.component, p.section, p.amount
-     FROM premiums p WHERE p.age=? AND p.frequency=? AND p.table_index=0`,
+    `SELECT p.product_id, p.gender, p.smoker, p.component, p.section, p.amount, p.age_flag
+     FROM premiums p WHERE p.age=? AND p.frequency=?`,
     [state.age, state.freq]);
   const byProd = {};
   for (const r of rows) (byProd[r.product_id] ||= []).push(r);
@@ -109,8 +93,8 @@ function computeResults() {
                    p.plan_level_zh_cn].join(' ').toLowerCase();
       if (!hay.includes(s)) continue;
     }
-    const prem = byProd[p.product_id] ? pickPremium(byProd[p.product_id]) : null;
-    results.push({ ...p, premium: prem });
+    const quote = byProd[p.product_id] ? quoteFor(byProd[p.product_id]) : null;
+    results.push({ ...p, quote, premium: quote && !quote.unavailable ? quote.amount : null });
   }
   return results;
 }
@@ -139,7 +123,7 @@ function render() {
       <td><div class="plan-name">${pName(r)}</div>${pAlt(r) ? `<div class="plan-zh">${pAlt(r)}</div>` : ''}</td>
       <td class="level">${pLevel(r)}</td>
       <td><span class="type-tag">${typeLbl(r.plan_type)}</span></td>
-      <td class="num premium">${r.premium == null ? '—' : money(r.premium, r.currency)}${r.premium != null ? '<small>' + (state.freq === 'annual' ? tr('perYr') : tr('perMo')) + '</small>' : ''}</td>
+      <td class="num premium">${quoteText(r.quote, r.currency)}${r.premium != null ? '<small>' + (state.freq === 'annual' ? tr('perYr') : tr('perMo')) + '</small>' : ''}</td>
       <td>${statusBadge(r)}${r.tax_deductible ? ` <span class="badge tax">${tr('tax')}</span>` : ''}</td>
       <td><span class="linkbtn">${tr('details')} ›</span></td>
     </tr>`).join('');
@@ -199,18 +183,17 @@ function openDrawer(pid) {
   // premium curve for the current gender selection
   const g = state.gender;
   const curve = q(
-    `SELECT age, frequency, component, section, gender, smoker, amount FROM premiums
-     WHERE product_id=? AND table_index=0 AND smoker IN (?, 'NA')
+    `SELECT age, frequency, component, section, gender, smoker, amount, age_flag FROM premiums
+     WHERE product_id=? AND smoker IN (?, 'NA')
        AND gender IN (?, 'U') AND age IN (${AGES.join(',')})`,
     [pid, state.smoker ? 'Y' : 'N', g]);
-  const at = (age, freq) => {
-    const rows = curve.filter(r => r.age === age && r.frequency === freq);
-    return rows.length ? pickPremium(rows) : null;
-  };
+  const at = (age, freq) => pickPremium(
+    curve.filter(r => r.age === age && r.frequency === freq),
+    { age, gender: g, smoker: state.smoker });
   const nowPrem = (() => {
-    const rows = q(`SELECT gender,smoker,component,section,amount FROM premiums
-      WHERE product_id=? AND age=? AND frequency=? AND table_index=0`, [pid, state.age, state.freq]);
-    return rows.length ? pickPremium(rows) : null;
+    const rows = q(`SELECT gender,smoker,component,section,amount,age_flag FROM premiums
+      WHERE product_id=? AND age=? AND frequency=?`, [pid, state.age, state.freq]);
+    return quoteFor(rows);
   })();
 
   const benefits = q(
@@ -271,13 +254,13 @@ function openDrawer(pid) {
 
     <div class="d-quote">
       <span>${tr('age')} ${state.age} · ${gTxt} · ${sTxt}</span>
-      <b>${nowPrem == null ? '—' : money(nowPrem, p.currency)}</b>
+      <b>${quoteText(nowPrem, p.currency)}</b>
       <span>/ ${state.freq === 'annual' ? tr('year') : tr('month')}</span>
     </div>
 
     <div class="d-section">${tr('premiumByAge')} (${gTxt}, ${sTxt})</div>
     <table class="mini"><thead><tr><th>${tr('tblAge')}</th><th class="num">${tr('annual')}</th><th class="num">${tr('monthly')}</th></tr></thead>
-      <tbody>${AGES.map(a => `<tr><td>${a}</td><td class="num">${money(at(a, 'annual'), p.currency)}</td><td class="num">${money(at(a, 'monthly'), p.currency)}</td></tr>`).join('')}</tbody>
+      <tbody>${AGES.map(a => `<tr><td>${a}</td><td class="num">${quoteText(at(a, 'annual'), p.currency)}</td><td class="num">${quoteText(at(a, 'monthly'), p.currency)}</td></tr>`).join('')}</tbody>
     </table>
     <p class="note">${tr('premiumNote')}</p>
 
@@ -371,9 +354,9 @@ function gapFor(pid, bench) {
 
 // ---- compare ----
 function premiumFor(pid, age, freq) {
-  const rows = q(`SELECT gender,smoker,component,section,amount FROM premiums
-    WHERE product_id=? AND age=? AND frequency=? AND table_index=0`, [pid, age, freq]);
-  return rows.length ? pickPremium(rows) : null;
+  const rows = q(`SELECT gender,smoker,component,section,amount,age_flag FROM premiums
+    WHERE product_id=? AND age=? AND frequency=?`, [pid, age, freq]);
+  return pickPremium(rows, { age, gender: state.gender, smoker: state.smoker });
 }
 function benefitsFor(pid) {
   const rows = q(`SELECT bi.code, bi.name, bi.raw FROM benefit_items bi
@@ -397,11 +380,11 @@ function compareRows() {
   R.push([tr('rowCurrency'), plans.map(p => p.currency)]);
   R.push([tr('rowStatus'), plans.map(p => statusText(p)[1])]);
   R.push([tr('rowPremAnnual', state.age, gShort),
-          plans.map(p => money(premiumFor(p.product_id, state.age, 'annual'), p.currency)), 'big']);
+          plans.map(p => quoteText(premiumFor(p.product_id, state.age, 'annual'), p.currency)), 'big']);
   R.push([tr('rowPremMonthly', state.age),
-          plans.map(p => money(premiumFor(p.product_id, state.age, 'monthly'), p.currency))]);
+          plans.map(p => quoteText(premiumFor(p.product_id, state.age, 'monthly'), p.currency))]);
   CMP_AGES.forEach(a => R.push([tr('rowAnnualAt', a),
-    plans.map(p => money(premiumFor(p.product_id, a, 'annual'), p.currency))]));
+    plans.map(p => quoteText(premiumFor(p.product_id, a, 'annual'), p.currency))]));
   CMP_BENEFITS.forEach(([code, key]) => {
     if (ben.some(b => b[code])) R.push([tr(key), ben.map(b => trLimit(b[code] && b[code].raw) || '—')]);
   });
