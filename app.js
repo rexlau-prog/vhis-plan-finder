@@ -150,6 +150,40 @@ function updateCmpBar() {
     .map(id => { const p = PRODUCTS.find(x => x.product_id === id); return p ? pName(p) : id; }).join(' · ');
 }
 
+
+// ---- footnote markers ----------------------------------------------------
+// Benefit limits carry markers like "Full cover(6)". The marker points into
+// THAT document's own numbered notes, and the qualification usually lives
+// there rather than in the limit: Blue Cross note (6) defines full cover as
+// "no itemised benefit sublimit ... subject to the Annual Benefit Limit and
+// Lifetime Benefit Limit" — i.e. not unlimited. Numbering is per document, so
+// a plan may only ever be shown its own notes.
+let NOTE_CACHE = {};
+const schedHash = (pid) =>
+  (q('SELECT schedule_hash FROM product_benefit WHERE product_id=?', [pid])[0] || {}).schedule_hash;
+function notesFor(scheduleHash) {
+  if (!scheduleHash) return {};
+  if (NOTE_CACHE[scheduleHash]) return NOTE_CACHE[scheduleHash];
+  const out = {};
+  for (const r of q('SELECT num, text FROM benefit_notes WHERE schedule_hash=?', [scheduleHash]))
+    out[r.num] = r.text;
+  return (NOTE_CACHE[scheduleHash] = out);
+}
+const esc = (t) => String(t).replace(/[&<>"]/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/** Make every "(n)" in a rendered limit hoverable, where the plan defines n. */
+function withNotes(html, notes) {
+  if (!html || !notes || !Object.keys(notes).length) return html;
+  return String(html).replace(/\((\d{1,2})\)/g, (m, n) => {
+    const t = notes[n];
+    // title = accessibility / copy-paste fallback; data-note drives the styled
+    // tooltip, because a native title takes ~1s to appear and cannot wrap 300
+    // characters of policy definition legibly.
+    return t ? `<abbr class="fn" title="(${n}) ${esc(t)}" data-note="${esc(t)}">${m}</abbr>` : m;
+  });
+}
+
 // ---- benefit ordering ----
 // Schedules use sectioned codes: core items "a".."o", then supplementary
 // sections "II-*", "III-*", "IV-*". Plain string sort puts "II-1" before "a"
@@ -216,18 +250,20 @@ function openDrawer(pid) {
         if (!byItem.has(b.code)) byItem.set(b.code, { name: b.name, code: b.code, v: {} });
         byItem.get(b.code).v[b.column] = b.raw || '';
       });
+      const dn = notesFor(schedHash(pid));
       benefitHtml = `<table class="mini benefit"><thead><tr><th>${tr('benefit')}</th>${
         cols.map(c => `<th class="num">${c}</th>`).join('')}</tr></thead><tbody>${
         [...byItem.values()].map(it => {
           const hasTier = cols.some(c => it.v[c]);
           const cells = hasTier
-            ? cols.map(c => `<td class="num">${trLimit(it.v[c]) || '—'}</td>`).join('')
-            : `<td class="num" colspan="${cols.length}">${trLimit(it.v['limit']) || '—'}</td>`;
+            ? cols.map(c => `<td class="num">${withNotes(trLimit(it.v[c]), dn) || '—'}</td>`).join('')
+            : `<td class="num" colspan="${cols.length}">${withNotes(trLimit(it.v['limit']), dn) || '—'}</td>`;
           return `<tr><td>${sectionTag(it.code)}${trBenefitName(it.code, it.name)}</td>${cells}</tr>`;
         }).join('')}</tbody></table>`;
     } else {
+      const dn2 = notesFor(schedHash(pid));
       benefitHtml = `<table class="mini benefit"><tbody>${benefits.map(b =>
-        `<tr><td>${sectionTag(b.code)}${trBenefitName(b.code, b.name)}</td><td class="num">${trLimit(b.raw) || '—'}</td></tr>`).join('')}</tbody></table>`;
+        `<tr><td>${sectionTag(b.code)}${trBenefitName(b.code, b.name)}</td><td class="num">${withNotes(trLimit(b.raw), dn2) || '—'}</td></tr>`).join('')}</tbody></table>`;
     }
     const sched = q(`SELECT annual_benefit_limit, lifetime_benefit_limit FROM benefit_schedules
       WHERE schedule_hash=(SELECT schedule_hash FROM product_benefit WHERE product_id=?)`, [pid])[0];
@@ -387,7 +423,8 @@ function compareRows() {
   CMP_AGES.forEach(a => R.push([tr('rowAnnualAt', a),
     plans.map(p => quoteText(premiumFor(p.product_id, a, 'annual'), p.currency))]));
   CMP_BENEFITS.forEach(([code, key]) => {
-    if (ben.some(b => b[code])) R.push([tr(key), ben.map(b => trLimit(b[code] && b[code].raw) || '—')]);
+    if (ben.some(b => b[code])) R.push([tr(key), ben.map((b, i) =>
+      withNotes(trLimit(b[code] && b[code].raw), notesFor(schedHash(plans[i].product_id))) || '—')]);
   });
   R.push([tr('rowTax'), plans.map(p => p.tax_deductible ? tr('yes') : '—')]);
 

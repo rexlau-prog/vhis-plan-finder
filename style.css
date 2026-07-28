@@ -198,3 +198,43 @@ td.chkcell input{cursor:pointer;width:16px;height:16px}
 /* a plan that cannot be issued to a client of this age: stated, not blank */
 .unavail { color: var(--warn, #b45309); font-size: .82em; font-style: italic;
            white-space: nowrap; cursor: help; }
+
+/* Footnote markers inside a benefit limit — "Full cover(6)". The note carries
+   the qualification, so make it discoverable rather than decorative. */
+abbr.fn {
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+  cursor: help;
+  opacity: .75;
+}
+abbr.fn:hover { opacity: 1; }
+
+/* The note itself. Rendered from data-note so it appears instantly and wraps —
+   a native title tooltip delays ~1s and cannot lay out a 300-character
+   definition. Anchored to the right edge so it never leaves the drawer. */
+abbr.fn { position: relative; }
+abbr.fn::after {
+  content: attr(data-note);
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  width: max-content;
+  max-width: min(38rem, 74vw);
+  padding: .6rem .75rem;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: .78rem;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 6px 24px rgba(0,0,0,.28);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .12s ease;
+  pointer-events: none;
+}
+abbr.fn:hover::after, abbr.fn:focus-visible::after { opacity: 1; visibility: visible; }
+@media print { abbr.fn::after { display: none; } }
