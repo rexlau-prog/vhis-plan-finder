@@ -437,19 +437,30 @@ function compareRows() {
   return { plans, R, bench };
 }
 
+/** A procedure's name in the current language, falling back to the benchmark's
+ *  own English wording if it has no translation yet. */
+function procName(procedure) {
+  return (tr('proc') || {})[procedure] || procedure;
+}
+
 function renderGapPicker() {
   const el = $('#gapPick');
   if (!el || !BENCH) return;
-  if (el.options.length <= 1) {
-    BENCH.procedures.slice().sort((a, b) => a.procedure.localeCompare(b.procedure))
-      .forEach(p => {
-        const o = document.createElement('option');
-        o.value = p.procedure;
-        o.textContent = `${p.procedure} (${p.hospitals} hosp)`;
-        el.appendChild(o);
-      });
-  }
-  el.value = state.gapProc || '';
+  // Rebuilt on every call, not just the first: the options carry translated
+  // procedure names, so building them once left the list in whichever language
+  // the agent happened to open the comparison in.
+  const keep = state.gapProc || '';
+  while (el.options.length > 1) el.remove(1);
+  BENCH.procedures.slice()
+    // sort on the DISPLAYED name, or the Chinese lists come out in English order
+    .sort((a, b) => procName(a.procedure).localeCompare(procName(b.procedure), tr('htmlLang')))
+    .forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.procedure;               // value stays English — it keys the benchmark
+      o.textContent = procName(p.procedure) + tr('hospCount', p.hospitals);
+      el.appendChild(o);
+    });
+  el.value = keep;
 }
 
 function openCompare() {
@@ -460,7 +471,8 @@ function openCompare() {
   $('#cmpTitle').textContent = tr('cmpTitle', state.age, gTxt, sTxt);
   $('#cmpBody').innerHTML = `
     <div class="print-head"><h2>${tr('comparison')}</h2>
-      <p>${tr('age')} ${state.age} · ${gTxt} · ${sTxt} · ${state.currency}</p></div>
+      <p>${tr('age')} ${state.age} · ${gTxt} · ${sTxt} · ${state.currency}</p>
+      ${bench ? `<p>${tr('gapFor')} ${procName(bench.procedure)}</p>` : ''}</div>
     <table class="cmp-table"><thead><tr><th></th>${plans.map(p =>
       `<th class="cmp-plan">${pName(p)}<small>${pAlt(p) || ''}</small></th>`).join('')}</tr></thead>
       <tbody>${R.map(([label, vals, cls]) =>
@@ -501,8 +513,10 @@ function exportResultsCsv() {
   csvDownload(`vhis-quote-age${state.age}-${state.gender}.csv`, rows);
 }
 function exportCompareCsv() {
-  const { plans, R } = compareRows();
+  const { plans, R, bench } = compareRows();
   const rows = clientHeader();
+  // Name the procedure, or the gap figures below are numbers without a question.
+  if (bench) rows.push([tr('gapFor'), procName(bench.procedure)]);
   rows.push(['', ...plans.map(p => pName(p))]);
   R.forEach(([label, vals]) => rows.push([label, ...vals]));
   csvDownload(`vhis-comparison-age${state.age}.csv`, rows);
@@ -547,6 +561,7 @@ function applyLang() {
   const sel = $('#insurer'), keep = sel.value;
   [...sel.options].slice(1).forEach(o => { const p = PRODUCTS.find(x => x.company_en === o.value); if (p) o.textContent = pCompany(p); });
   sel.value = keep;
+  renderGapPicker();          // its options are translated, so they must rebuild too
   document.querySelectorAll('.lang button').forEach(b =>
     b.classList.toggle('on', b.dataset.l === LANG));
   document.querySelectorAll('[data-k]').forEach(e => e.textContent = tr(e.dataset.k));
