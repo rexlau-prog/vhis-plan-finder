@@ -212,6 +212,14 @@ function groundQuestion(question, product, qFn, getPolicy) {
         alternatives: procMatches.slice(1) }
     : null;
 
+  // The deductible on benefit_schedules belongs to whichever product happened to
+  // represent the shared schedule — 119 products inherit a figure that
+  // contradicts their own certified document. Resolve it from the plan level,
+  // which the Government dataset states per product.
+  const dedText = (typeof deductibleText === 'function')
+    ? deductibleText(sched, product.plan_level_en, product.currency)
+    : sched.deductible;
+
   return {
     question,
     plan: {
@@ -223,7 +231,7 @@ function groundQuestion(question, product, qFn, getPolicy) {
     matchedReasons: reasons,
     benefits,
     surgical,
-    scheduleLimits: sched,
+    scheduleLimits: { ...sched, deductible: dedText },
     likelyExclusions: exclusionFlags,
     policy: getPolicy(product.product_id) || {},
     matchedNothing: codes.length === 0,

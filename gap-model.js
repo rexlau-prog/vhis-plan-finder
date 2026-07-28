@@ -272,10 +272,35 @@ function planLimits(schedule, planLevelEn) {
   const s = schedule || {};
   const m = /(?:HKD|USD|\$)\s*([\d,]+)\s*Deductible/i.exec(planLevelEn || '');
   const fromLevel = m ? parseFloat(m[1].replace(/,/g, '')) : null;
-  const deductible = (fromLevel != null && isFinite(fromLevel))
+  const useLevel = fromLevel != null && isFinite(fromLevel);
+  const deductible = useLevel
     ? (fromLevel > 0 ? fromLevel : 0)          // "HKD0 Deductible" is a real zero
     : moneyIn(s.deductible);
-  return { annualLimit: moneyIn(s.annual_benefit_limit), deductible };
+  return {
+    annualLimit: moneyIn(s.annual_benefit_limit),
+    deductible,
+    // Where the figure came from. benefit_schedules is keyed by a hash of the
+    // benefit ITEMS, so plan variants that differ only in deductible share one
+    // row and all inherit the representative's figure — 119 products carry a
+    // deductible that contradicts their own certified document that way.
+    // Callers that DISPLAY the deductible must use this, not the raw field.
+    deductibleSource: useLevel ? 'plan-level' : (deductible != null ? 'schedule' : 'none'),
+  };
+}
+
+/**
+ * The deductible as a string fit to show a client, or null.
+ * Rendered from the authoritative figure rather than echoing the shared
+ * schedule row, which is wrong for 119 products.
+ */
+function deductibleText(schedule, planLevelEn, currency) {
+  const { deductible, deductibleSource } = planLimits(schedule, planLevelEn);
+  if (deductible == null) return null;
+  // A schedule-sourced figure keeps the document's own wording (it may carry a
+  // qualifier such as "per Policy Year" that the bare number would lose).
+  if (deductibleSource === 'schedule') return (schedule || {}).deductible || null;
+  const cur = currency === 'USD' ? 'USD' : 'HKD';
+  return `${cur} ${deductible.toLocaleString('en-US')}`;
 }
 
 // Hospitals and the Government schedule use different words for the same
@@ -385,6 +410,6 @@ function gapEstimate(bench, items, ctx = {}) {
 if (typeof module !== 'undefined') {
   module.exports = { estimateGap, gapEstimate, SPLIT, ANAES_PCT, USD_HKD, moneyIn,
                      TIERS, tierKey, pickTierRows, hasTierChoice,
-                     planLimits, categoryForBenchmark, toHkd,
+                     planLimits, deductibleText, categoryForBenchmark, toHkd,
                      BENCH_TO_SCHEDULE, BENCH_EXCLUDED };
 }
