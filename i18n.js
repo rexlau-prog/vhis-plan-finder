@@ -57,6 +57,10 @@ const T = {
     gapCapUnknown: 'Limit could not be read',
     gapCapUnknownFor: items => `${items} — assumed paid in full, so this plan's figure is an upper bound. Check the policy document.`,
     hospCount: n => ` (${n} hosp)`,   // punctuation included: Chinese uses full-width
+    tierLbl: 'Provider', tierRow: 'Limits quoted at',
+    tierNetwork: 'Network provider', tierNonNetwork: 'Own choice of doctor',
+    tierSingle: 'one set of limits',
+    tierNetworkBtn: 'Network', tierNonNetworkBtn: 'Own doctor',
     // Procedure names for the coverage-gap picker. The benchmark file is English
     // only (it is keyed on the hospitals' own published wording), so the
     // translations live here. English needs no map — it falls back to the key.
@@ -114,6 +118,10 @@ const T = {
     gapCapUnknown: '未能讀取賠償上限',
     gapCapUnknownFor: items => `${items} — 已假設全數賠償，故此計劃的金額僅為上限估算。請查閱保單文件。`,
     hospCount: n => `（${n} 間醫院）`,
+    tierLbl: '醫療網絡', tierRow: '採用哪一組限額',
+    tierNetwork: '網絡內醫生', tierNonNetwork: '自選醫生（網絡外）',
+    tierSingle: '只有一組限額',
+    tierNetworkBtn: '網絡內', tierNonNetworkBtn: '自選醫生',
     // 手術名稱（保障缺口選單）。基準檔案只有英文（沿用醫院公布的字眼），故譯名置於此。
     proc: {
       'TURP / prostatectomy': '經尿道前列腺切除術（TURP）',
@@ -207,6 +215,10 @@ const T = {
     gapCapUnknown: '未能读取赔偿上限',
     gapCapUnknownFor: items => `${items} — 已假设全数赔偿，故此计划的金额仅为上限估算。请查阅保单文件。`,
     hospCount: n => `（${n} 间医院）`,
+    tierLbl: '医疗网络', tierRow: '采用哪一组限额',
+    tierNetwork: '网络内医生', tierNonNetwork: '自选医生（网络外）',
+    tierSingle: '只有一组限额',
+    tierNetworkBtn: '网络内', tierNonNetworkBtn: '自选医生',
     // 手术名称（保障缺口选单）。基准档案只有英文（沿用医院公布的字眼），故译名置于此。
     proc: {
       'TURP / prostatectomy': '经尿道前列腺切除术（TURP）',

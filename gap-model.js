@@ -181,6 +181,58 @@ function estimateGap(bench, items, opts = {}) {
 // comparing a USD-denominated plan against HKD hospital costs.
 const USD_HKD = 7.8;
 
+/* ---- provider tier -------------------------------------------------------
+   Six AIA schedules publish TWO limits for the same benefit item: a higher one
+   if the client uses the insurer's provider network, a lower one if they pick
+   their own doctor. Which applies is a fact about the CLIENT'S choice, not
+   about the plan, so it has to be selectable rather than assumed.
+
+   The default is the NON-network (lower) figure. The headline number here is
+   what the client pays, and understating that is the damaging direction — on a
+   spinal fusion the two tiers differ by $37,680, and a client told to expect
+   the smaller shortfall finds out in hospital. Agents whose client will use the
+   network can switch.
+
+   Note this is deliberately NOT "always the worst tier": these six plans are
+   ranked against 573 others that publish a single figure, so quietly holding
+   them to their worst case would skew the comparison against them. The choice
+   is surfaced instead of being decided here.                                */
+
+const TIERS = ['non-network', 'network'];
+
+/** 'Non-Network' / 'non-network' / 'Network' -> a comparable key, else null. */
+function tierKey(column) {
+  const k = String(column || '').toLowerCase().replace(/[^a-z]/g, '');
+  return (k === 'network' || k === 'nonnetwork') ? k : null;
+}
+
+/**
+ * One benefit row per item code, honouring the requested provider tier.
+ * Rows carrying no tier label — the other 364 schedules — are unaffected.
+ * @param rows  every benefit_items row for the product, in document order
+ */
+function pickTierRows(rows, tier) {
+  const want = tierKey(tier) || 'nonnetwork';
+  const byCode = {};
+  for (const r of rows || []) (byCode[r.code] ||= []).push(r);
+  const out = {};
+  for (const code in byCode) {
+    const cs = byCode[code];
+    out[code] = cs.find(r => tierKey(r.column) === want) || cs[0];
+  }
+  return out;
+}
+
+/** True when the plan really offers a choice; the UI hides the toggle otherwise. */
+function hasTierChoice(rows) {
+  const seen = {};
+  for (const r of rows || []) {
+    const t = tierKey(r.column);
+    if (t) (seen[r.code] ||= new Set()).add(t);
+  }
+  return Object.values(seen).some(s => s.size > 1);
+}
+
 /**
  * Pull a money figure out of a published limit ("$420,000 per Policy Year").
  *
@@ -332,6 +384,7 @@ function gapEstimate(bench, items, ctx = {}) {
 
 if (typeof module !== 'undefined') {
   module.exports = { estimateGap, gapEstimate, SPLIT, ANAES_PCT, USD_HKD, moneyIn,
+                     TIERS, tierKey, pickTierRows, hasTierChoice,
                      planLimits, categoryForBenchmark, toHkd,
                      BENCH_TO_SCHEDULE, BENCH_EXCLUDED };
 }

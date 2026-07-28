@@ -12,6 +12,7 @@ const state = {
   sortKey: 'premium', sortDir: 1,
   compare: new Set(),     // product_ids selected for side-by-side
   gapProc: '',            // benchmark procedure for the coverage-gap estimate
+  tier: 'non-network',    // provider tier for plans that publish two sets of limits
 };
 
 // ---- helpers ----
@@ -329,22 +330,27 @@ function closeDrawer() { $('#drawer').hidden = true; $('#drawerBackdrop').hidden
 let BENCH = null;   // published private-hospital cost benchmarks
 let SOSP_ROWS = null;
 
-/** Benefit rows for a product, keyed by item code — the shape gap-model wants. */
-function benefitRowsFor(pid) {
+/** Every benefit row for a product, in document order. */
+function benefitRowsRaw(pid) {
   // ORDER BY is load-bearing, not tidiness: six AIA schedules publish separate
-  // Network and Non-network rows for the same code, and this keeps the first.
-  // Without an explicit order, which tier gets quoted is up to the query plan —
-  // and the browser (sql.js, against a table rebuilt with no index) need not
-  // match what you see locally. Fixed to rowid, i.e. document order.
-  // NOTE: document order means the Network (more generous) row wins. Whether an
-  // estimate should instead assume the worst tier is a product decision.
-  const rows = q(`SELECT bi.code, bi.amount, bi.unit, bi.max_days, bi.coinsurance_percent,
-                         bi.complex, bi.major, bi.intermediate, bi.minor, bi.raw
-                  FROM benefit_items bi JOIN product_benefit pb USING(schedule_hash)
-                  WHERE pb.product_id=? ORDER BY bi.rowid`, [pid]);
-  const out = {};
-  for (const r of rows) if (!out[r.code]) out[r.code] = r;   // first value column
-  return out;
+  // Network and Non-network rows for the same code. Without an explicit order,
+  // which one gets picked is up to the query plan — and the browser (sql.js,
+  // against a table rebuilt with no index) need not match what you see locally.
+  return q(`SELECT bi.code, bi.column, bi.amount, bi.unit, bi.max_days,
+                   bi.coinsurance_percent, bi.complex, bi.major, bi.intermediate,
+                   bi.minor, bi.raw
+            FROM benefit_items bi JOIN product_benefit pb USING(schedule_hash)
+            WHERE pb.product_id=? ORDER BY bi.rowid`, [pid]);
+}
+
+/** Benefit rows keyed by item code, for the client's chosen provider tier. */
+function benefitRowsFor(pid) {
+  return pickTierRows(benefitRowsRaw(pid), state.tier);
+}
+
+/** Does any plan being compared actually offer a network choice? */
+function anyTierChoice(pids) {
+  return [...pids].some(pid => hasTierChoice(benefitRowsRaw(pid)));
 }
 /** The benefit_schedules row behind a product. */
 function scheduleFor(pid) {
@@ -423,6 +429,13 @@ function compareRows() {
       gaps[i] && gaps[i].ambiguous ? tr('gapCatLowest', gaps[i].category) : '—')]);
     if (gaps.some(g => g && g.fx && g.fx !== 1)) R.push([tr('gapFx'), plans.map((p, i) =>
       gaps[i] && gaps[i].fx !== 1 ? `USD × ${gaps[i].fx}` : '—')]);
+    // Say which set of limits each plan is being quoted at. Without this the
+    // toggle silently changes the figures and the printout does not record
+    // which assumption the client was shown.
+    if (anyTierChoice(state.compare)) R.push([tr('tierRow'), plans.map(p =>
+      hasTierChoice(benefitRowsRaw(p.product_id))
+        ? tr(state.tier === 'network' ? 'tierNetwork' : 'tierNonNetwork')
+        : tr('tierSingle'))]);
     // Some plans have a benefit row we could not read a limit from. Those items
     // are assumed paid in full, which flatters the plan — say so, or a bad
     // extraction reads as generous cover.
@@ -481,6 +494,10 @@ function openCompare() {
       </tbody></table>
     ${bench ? `<p class="note gapnote">${tr('gapNote', bench.hospitals)}</p>` : ''}`;
   renderGapPicker();
+  // The toggle is meaningless for the 573 plans that publish one set of limits,
+  // so it only appears when a plan on screen actually offers the choice.
+  const tw = $('#tierWrap');
+  if (tw) tw.hidden = !anyTierChoice(state.compare);
   $('#cmpOverlay').hidden = false;
 }
 
@@ -549,6 +566,8 @@ function applyLang() {
   set('#cmpOpen', tr('compare')); set('#cmpClear', tr('clear'));
   set('#cmpCsv', tr('exportCsv')); set('#cmpPrint', tr('printPdf')); set('#cmpClose', tr('close'));
   set('#gapLbl', tr('gapFor'));
+  set('#tierLbl', tr('tierLbl'));
+  segTxt('tier', [tr('tierNonNetworkBtn'), tr('tierNetworkBtn')]);
   const th = document.querySelectorAll('#resultsTable thead th');
   const heads = [null, tr('thInsurer'), tr('thPlan'), tr('thLevel'), tr('thType'),
                  tr('thPremium'), tr('thStatus'), null];
@@ -606,6 +625,14 @@ function wire() {
   $('#cmpClose').addEventListener('click', () => { $('#cmpOverlay').hidden = true; });
   $('#cmpOverlay').addEventListener('click', e => { if (e.target.id === 'cmpOverlay') $('#cmpOverlay').hidden = true; });
   $('#gapPick').addEventListener('change', e => { state.gapProc = e.target.value; openCompare(); });
+  // its own wiring rather than seg(): this one re-runs the comparison, not the
+  // results table, because the tier only changes what the gap estimate reads.
+  $('#tier').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    const el = $('#tier');
+    el.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); el.dataset.value = b.dataset.v; state.tier = b.dataset.v;
+    openCompare();
+  }));
   $('#cmpCsv').addEventListener('click', exportCompareCsv);
   $('#cmpPrint').addEventListener('click', () => window.print());
   $('#exportCsv').addEventListener('click', exportResultsCsv);

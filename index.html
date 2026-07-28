@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VHIS Plan Finder — agent tool</title>
-  <link rel="stylesheet" href="style.css?v=16" />
+  <link rel="stylesheet" href="style.css?v=17" />
 </head>
 <body>
   <header class="topbar">
@@ -112,6 +112,12 @@
           <label class="gappick"><span id="gapLbl">Coverage gap for</span>
             <select id="gapPick"><option value="">—</option></select>
           </label>
+          <!-- only shown when a compared plan publishes two sets of limits -->
+          <label class="gappick" id="tierWrap" hidden><span id="tierLbl">Provider</span>
+            <div class="seg" id="tier" data-value="non-network">
+              <button data-v="non-network" class="on">Non-network</button><button data-v="network">Network</button>
+            </div>
+          </label>
           <button class="btn" id="cmpCsv">Export CSV</button>
           <button class="btn" id="cmpPrint">Print / PDF</button>
           <button class="btn" id="cmpClose">Close ✕</button>
@@ -135,9 +141,9 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
-  <script src="i18n.js?v=16"></script>
-  <script src="gap-model.js?v=16"></script>
-  <script src="advisor-core.js?v=16"></script>
-  <script src="app.js?v=16"></script>
+  <script src="i18n.js?v=17"></script>
+  <script src="gap-model.js?v=17"></script>
+  <script src="advisor-core.js?v=17"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>
