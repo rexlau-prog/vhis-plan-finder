@@ -64,6 +64,21 @@ function sectionPrice(rows) {
 }
 
 /**
+ * Does this row price the client's CURRENT age?
+ *
+ * Insurers index rate tables two ways. Most use attained age — the age the
+ * client is now. 93 products use "age next birthday", where the row labelled 1
+ * is the newborn's rate. Querying the client's age directly against those
+ * tables is off by a year in the cheap direction, and at age 0 it finds nothing
+ * at all: a newborn got no FWD vFamily quote although the table prices one.
+ */
+function rowIsForAge(row, age) {
+  if (age == null) return true;
+  const basis = row.age_basis || 'attained';
+  return basis === 'next_birthday' ? row.age === age + 1 : row.age === age;
+}
+
+/**
  * The premium to quote, or a stated reason there is none.
  * @param rows  every premium row for one product at one age and frequency
  * @param opts  {age, gender:'M'|'F', smoker:boolean}
@@ -72,6 +87,12 @@ function sectionPrice(rows) {
 function pickPremium(rows, opts = {}) {
   const { age, gender = 'M', smoker = false } = opts;
   if (!rows || !rows.length) return null;
+  // Callers hand us both candidate ages; keep the rows this client's age
+  // actually indexes under each row's own basis.
+  if (rows.some(r => r.age != null)) {
+    const forAge = rows.filter(r => rowIsForAge(r, age));
+    if (forAge.length) rows = forAge;
+  }
 
   // gender, then smoker status, falling back to the unisex / not-applicable rate
   const g = rows.some(r => r.gender === gender) ? gender : 'U';
@@ -103,5 +124,5 @@ function pickPremium(rows, opts = {}) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { pickPremium, sectionPrice, entryBand, isNewBusiness };
+  module.exports = { rowIsForAge, pickPremium, sectionPrice, entryBand, isNewBusiness };
 }

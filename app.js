@@ -72,9 +72,10 @@ const quoteFor = (rows) =>
 
 function computeResults() {
   const rows = q(
-    `SELECT p.product_id, p.gender, p.smoker, p.component, p.section, p.amount, p.age_flag
-     FROM premiums p WHERE p.age=? AND p.frequency=?`,
-    [state.age, state.freq]);
+    `SELECT p.product_id, p.gender, p.smoker, p.component, p.section, p.amount,
+            p.age_flag, p.age, p.age_basis
+     FROM premiums p WHERE p.age IN (?, ?) AND p.frequency=?`,
+    [state.age, state.age + 1, state.freq]);
   const byProd = {};
   for (const r of rows) (byProd[r.product_id] ||= []).push(r);
 
@@ -183,7 +184,7 @@ function openDrawer(pid) {
   // premium curve for the current gender selection
   const g = state.gender;
   const curve = q(
-    `SELECT age, frequency, component, section, gender, smoker, amount, age_flag FROM premiums
+    `SELECT age, age_basis, frequency, component, section, gender, smoker, amount, age_flag FROM premiums
      WHERE product_id=? AND smoker IN (?, 'NA')
        AND gender IN (?, 'U') AND age IN (${AGES.join(',')})`,
     [pid, state.smoker ? 'Y' : 'N', g]);
@@ -191,8 +192,8 @@ function openDrawer(pid) {
     curve.filter(r => r.age === age && r.frequency === freq),
     { age, gender: g, smoker: state.smoker });
   const nowPrem = (() => {
-    const rows = q(`SELECT gender,smoker,component,section,amount,age_flag FROM premiums
-      WHERE product_id=? AND age=? AND frequency=?`, [pid, state.age, state.freq]);
+    const rows = q(`SELECT gender,smoker,component,section,amount,age_flag,age,age_basis FROM premiums
+      WHERE product_id=? AND age IN (?, ?) AND frequency=?`, [pid, state.age, state.age + 1, state.freq]);
     return quoteFor(rows);
   })();
 
@@ -354,8 +355,8 @@ function gapFor(pid, bench) {
 
 // ---- compare ----
 function premiumFor(pid, age, freq) {
-  const rows = q(`SELECT gender,smoker,component,section,amount,age_flag FROM premiums
-    WHERE product_id=? AND age=? AND frequency=?`, [pid, age, freq]);
+  const rows = q(`SELECT gender,smoker,component,section,amount,age_flag,age,age_basis FROM premiums
+    WHERE product_id=? AND age IN (?, ?) AND frequency=?`, [pid, age, age + 1, freq]);
   return pickPremium(rows, { age, gender: state.gender, smoker: state.smoker });
 }
 function benefitsFor(pid) {
