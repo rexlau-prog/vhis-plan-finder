@@ -385,7 +385,14 @@ function toHkd(items, limits, currency) {
 function gapEstimate(bench, items, ctx = {}) {
   if (!bench) return null;
   if (BENCH_EXCLUDED.has(bench.procedure)) return { excluded: true };
-  if (!items || !Object.keys(items).length) return null;
+  // An estimate needs at least one of the five items a surgical bill is
+  // apportioned across. A schedule can carry rows and still have none of them —
+  // one plan's whole (a)-(h) range was bound to Supplementary Major Medical
+  // items and is now quarantined off the statutory codes. Estimating from
+  // nothing would print "plan pays $0, client pays the lot", which is as untrue
+  // as the "covers everything" it replaced. Say we cannot estimate instead.
+  const GAP_CODES = ['f', 'g', 'h', 'a', 'b'];
+  if (!items || !GAP_CODES.some(c => items[c])) return null;
   const cat = categoryForBenchmark(bench.procedure, ctx.match);
   if (!cat) return { noCategory: true };
 
