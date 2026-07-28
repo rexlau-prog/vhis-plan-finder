@@ -323,119 +323,44 @@ function openDrawer(pid) {
 function closeDrawer() { $('#drawer').hidden = true; $('#drawerBackdrop').hidden = true; }
 
 // ---- coverage gap (agent-facing, indicative) ----
+// The model, and every judgement it makes, lives in gap-model.js — which is pure
+// and covered by gap-model.test.js. This file only feeds it: rows out of SQLite,
+// the product record, and the procedure matcher.
 let BENCH = null;   // published private-hospital cost benchmarks
-const USD_HKD = 7.8;  // HKD is pegged (7.75–7.85); used to compare USD plans against HKD costs
 let SOSP_ROWS = null;
-
-// Pull a leading number out of a published limit string ("$420,000 per Policy Year").
-function moneyIn(s) {
-  const m = /([\d][\d,]*)(?:\.\d+)?/.exec(String(s || '').replace(/[^\d,.]/g, ' '));
-  if (!m) return null;
-  const n = parseFloat(m[1].replace(/,/g, ''));
-  return isFinite(n) && n > 0 ? n : null;
-}
 
 /** Benefit rows for a product, keyed by item code — the shape gap-model wants. */
 function benefitRowsFor(pid) {
+  // ORDER BY is load-bearing, not tidiness: six AIA schedules publish separate
+  // Network and Non-network rows for the same code, and this keeps the first.
+  // Without an explicit order, which tier gets quoted is up to the query plan —
+  // and the browser (sql.js, against a table rebuilt with no index) need not
+  // match what you see locally. Fixed to rowid, i.e. document order.
+  // NOTE: document order means the Network (more generous) row wins. Whether an
+  // estimate should instead assume the worst tier is a product decision.
   const rows = q(`SELECT bi.code, bi.amount, bi.unit, bi.max_days, bi.coinsurance_percent,
                          bi.complex, bi.major, bi.intermediate, bi.minor, bi.raw
                   FROM benefit_items bi JOIN product_benefit pb USING(schedule_hash)
-                  WHERE pb.product_id=?`, [pid]);
+                  WHERE pb.product_id=? ORDER BY bi.rowid`, [pid]);
   const out = {};
   for (const r of rows) if (!out[r.code]) out[r.code] = r;   // first value column
   return out;
 }
-function scheduleOpts(pid) {
-  const s = q(`SELECT annual_benefit_limit, deductible FROM benefit_schedules
-               WHERE schedule_hash=(SELECT schedule_hash FROM product_benefit WHERE product_id=?)`,
-              [pid])[0] || {};
-  // The deductible is often absent from the extracted schedule but is always
-  // named in the product's plan level ("HKD180,000 Deductible") in the
-  // Government dataset — which is authoritative for the variant. Prefer it,
-  // otherwise a deductible plan would look far more generous than it is.
-  const p = PRODUCTS.find(x => x.product_id === pid) || {};
-  const m = /(?:HKD|USD|\$)\s*([\d,]+)\s*Deductible/i.exec(p.plan_level_en || '');
-  const fromLevel = m ? parseFloat(m[1].replace(/,/g, '')) : null;
-  const deductible = (fromLevel != null && isFinite(fromLevel))
-    ? (fromLevel > 0 ? fromLevel : 0)      // "HKD0 Deductible" is a real zero
-    : moneyIn(s.deductible);
-  return { annualLimit: moneyIn(s.annual_benefit_limit), deductible };
+/** The benefit_schedules row behind a product. */
+function scheduleFor(pid) {
+  return q(`SELECT annual_benefit_limit, deductible FROM benefit_schedules
+            WHERE schedule_hash=(SELECT schedule_hash FROM product_benefit WHERE product_id=?)`,
+           [pid])[0] || {};
 }
 
-// Hospitals and the Government schedule use different words for the same
-// operation ("gastroscopy" vs "Oesophagogastroduodenoscopy (OGD)"), so map the
-// benchmark name onto the schedule's terminology before matching.
-const BENCH_TO_SCHEDULE = {
-  'gastroscopy': 'Oesophagogastroduodenoscopy OGD',
-  'colposcopy': 'colposcopy vagina cervix',
-  'dilation & curettage': 'dilatation and curettage',
-  'fracture fixation (ORIF)': 'open reduction internal fixation fracture',
-  'fracture fixation (ORIF, lower limb)': 'open reduction internal fixation femur tibia',
-  'fracture fixation (ORIF, upper limb)': 'open reduction internal fixation radius humerus',
-  'TURP / prostatectomy': 'transurethral resection prostate',
-  'endoscopic sinus surgery': 'functional endoscopic sinus',
-  'breast lump excision': 'excision of breast lump',
-  'anal fistulectomy': 'anal fistulotomy fistulectomy',
-};
-// Procedures VHIS certified plans do not cover at all. Showing a "gap" for these
-// implies the plan merely fell short, when in fact nothing is payable.
-const BENCH_EXCLUDED = new Set(['caesarean section', 'vaginal delivery', 'lasik']);
-
-/**
- * Surgical category for a benchmark procedure, via the Government schedule.
- * Returns null when it cannot be established — the caller must NOT quietly
- * assume a category, because the surgeon's-fee cap swings $5,000 to $50,000.
- */
-function categoryForBenchmark(name) {
-  const m = matchProcedures(BENCH_TO_SCHEDULE[name] || name, 3);
-  if (!m.length) return null;
-  const cats = [...new Set(m.map(x => x.category))];
-  // several candidate categories => genuinely ambiguous (e.g. unilateral vs
-  // bilateral hernia). Take the LOWEST, so the estimate never overstates cover.
-  const order = ['minor', 'intermediate', 'major', 'complex'];
-  cats.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  return { category: cats[0], ambiguous: cats.length > 1, all: cats };
-}
-
-/**
- * Gap for one plan at the low / median / high hospital. Presented as a RANGE:
- * the same operation varies widely by hospital, and a single figure would be
- * false precision on what is already a model.
- */
+/** Gap for one plan at the low / median / high hospital. See gap-model.js. */
 function gapFor(pid, bench) {
   if (!BENCH || !bench) return null;
-  if (BENCH_EXCLUDED.has(bench.procedure)) return { excluded: true };
-  const items = benefitRowsFor(pid);
-  if (!Object.keys(items).length) return null;
-  const cat = categoryForBenchmark(bench.procedure);
-  if (!cat) return { noCategory: true };
   const p = PRODUCTS.find(x => x.product_id === pid) || {};
-  // Benchmarks are HKD. A USD plan's limits must be converted or its cover is
-  // understated ~7.8x. The HK dollar is pegged, so a fixed rate is appropriate.
-  const fx = p.currency === 'USD' ? USD_HKD : 1;
-  const so = scheduleOpts(pid);
-  // Use the hospitals' own published average length of stay; only fall back to
-  // a nominal 2 days when none is published.
-  const days = bench.stay_days || 2;
-  const opts = { surgicalCategory: cat.category, days,
-                 annualLimit: so.annualLimit != null ? so.annualLimit * fx : null,
-                 deductible: so.deductible != null ? so.deductible * fx : null };
-  // scale the plan's own item caps into HKD too
-  const scaled = {};
-  for (const k in items) {
-    const r = items[k];
-    scaled[k] = fx === 1 ? r : { ...r,
-      amount: r.amount != null ? r.amount * fx : r.amount,
-      complex: r.complex != null ? r.complex * fx : r.complex,
-      major: r.major != null ? r.major * fx : r.major,
-      intermediate: r.intermediate != null ? r.intermediate * fx : r.intermediate,
-      minor: r.minor != null ? r.minor * fx : r.minor };
-  }
-  const at = (total) => estimateGap({ ...bench, total_median: total }, scaled, opts);
-  const lo = at(bench.total_low), mid = at(bench.total_median), hi = at(bench.total_high);
-  if (!mid) return null;
-  return { lo, mid, hi, category: cat.category, ambiguous: cat.ambiguous, fx,
-           days, daysPublished: bench.stay_days != null };
+  return gapEstimate(bench, benefitRowsFor(pid), {
+    currency: p.currency, planLevel: p.plan_level_en,
+    schedule: scheduleFor(pid), match: matchProcedures,
+  });
 }
 
 // ---- compare ----
@@ -452,6 +377,8 @@ function benefitsFor(pid) {
 const CMP_AGES = [30, 50, 65];
 const CMP_BENEFITS = [['a', 'bRoom'], ['b', 'bMisc'], ['e', 'bIcu'],
                       ['f', 'bSurgeon'], ['i', 'bImaging'], ['j', 'bCancer']];
+// The five items the gap model apportions a surgical bill across.
+const GAP_ITEM_LABEL = { f: 'bSurgeon', g: 'bAnaes', h: 'bTheatre', a: 'bRoom', b: 'bMisc' };
 
 function compareRows() {
   const plans = [...state.compare].map(id => PRODUCTS.find(p => p.product_id === id)).filter(Boolean);
@@ -496,6 +423,16 @@ function compareRows() {
       gaps[i] && gaps[i].ambiguous ? tr('gapCatLowest', gaps[i].category) : '—')]);
     if (gaps.some(g => g && g.fx && g.fx !== 1)) R.push([tr('gapFx'), plans.map((p, i) =>
       gaps[i] && gaps[i].fx !== 1 ? `USD × ${gaps[i].fx}` : '—')]);
+    // Some plans have a benefit row we could not read a limit from. Those items
+    // are assumed paid in full, which flatters the plan — say so, or a bad
+    // extraction reads as generous cover.
+    const unread = g => (g && g.mid && g.mid.capsNotEstablished) || null;
+    if (gaps.some(unread)) R.push([tr('gapCapUnknown'), gaps.map(g => {
+      const u = unread(g);
+      // Chinese lists items with the enumeration comma, not a Latin one.
+      const sep = LANG === 'en' ? ', ' : '、';
+      return u ? tr('gapCapUnknownFor', u.map(c => tr(GAP_ITEM_LABEL[c] || 'bMisc')).join(sep)) : '—';
+    })]);
   }
   return { plans, R, bench };
 }
