@@ -295,30 +295,136 @@ const BENEFIT_NAMES = {
 };
 
 // Limit-cell phrasing, mirroring the wording used in the Chinese plan documents.
+/* Order is load-bearing: these run in sequence, so a long phrase must be
+   consumed before a shorter rule can eat part of it. "benefit limit of benefit
+   item (i)" has to match before the bare "benefit item" rule, or it degrades
+   into half-translated soup.
+
+   Scope note: these translate the VHIS glossary terms and the recurring
+   contractual phrasing. Insurer-specific prose that is not in the glossary is
+   deliberately left in English — a confident-sounding wrong translation of a
+   coverage condition is worse for an agent than an untranslated one. */
 const LIMIT_RULES = [
-  [/\bfull\s*cover(age)?\b/gi, '全數保障', '全数保障'],
+  // ---- whole clauses (must precede every rule whose phrase they contain) ----
+  [/\bCoinsurance shall be (\d+)% if the conditions stated in Section\s*([\d\w.()]+)\s*of the Supplement\s*[–—-]\s*Benefits are fully satisfied\b/gi,
+   '如完全符合《附加契約 — 保障》第 $2 節所載條件，共同保險為 $1%',
+   '如完全符合《附加契约 — 保障》第 $2 节所载条件，共同保险为 $1%'],
+  [/\bsubject to (?:benefit\s+)?limits? of benefits?\s*\(([IVX]+)\)\s*"([^"]+)"\s*under\s+Enhanced [Bb]enefits/gi,
+   '設《增強保障》項下保障 ($1)「$2」的限額', '设《增强保障》项下保障 ($1)「$2」的限额'],
+  [/\bsubject to (?:benefit\s+)?limits? of benefit items?\s*\(?([a-z])\)?\s*"([^"]+)"\s*of \d\)\s*Enhanced [Bb]enefits/gi,
+   '設《增強保障》項下保障項目 ($1)「$2」的限額', '设《增强保障》项下保障项目 ($1)「$2」的限额'],
+  [/\bFor any Reasonable and Customary charges incurred outside of Hong Kong, Macau and mainland China which are payable under this benefit item, the Reasonable and Customary charges incurred shall be reduced to (\d+)% in the calculation of the total benefit amount payable/gi,
+   '在香港、澳門及中國內地以外產生而屬本保障項目應付的合理及慣常費用，計算應付保障總額時只按 $1% 計算',
+   '在香港、澳门及中国内地以外产生而属本保障项目应付的合理及惯常费用，计算应付保障总额时只按 $1% 计算'],
+  [/\bsubject to surgical category for the surgery\s*\/\s*procedure in the Schedule of Surgical Procedures\b/gi,
+   '按《外科手術表》所載該手術／程序的手術分類', '按《外科手术表》所载该手术／程序的手术分类'],
+  [/\bPayable after exceeding the (\d+) days per Policy Year as stated under item ([IVX]+)\s*\(([a-z])\)/gi,
+   '於超出項目 $2($3) 所訂每保單年度 $1 日後方可賠付',
+   '于超出项目 $2($3) 所订每保单年度 $1 日后方可赔付'],
+  [/\bPerformed in a setting for providing Medical Services to a Day Patient\b/gi,
+   '在為日間病人提供醫療服務的處所進行', '在为日间病人提供医疗服务的处所进行'],
+  [/\bthe deduction of Deductible and Benefit Contribution Amount\b/gi,
+   '扣除自付費及保障分擔額', '扣除自付费及保障分担额'],
+  [/\bin accordance with Section\s*([\d\w.()]+)\s*of Part\s*([\d\w.]+)\s*of the Terms and Conditions\b/gi,
+   '按保單條款第 $2 部第 $1 節', '按保单条款第 $2 部第 $1 节'],
+  [/\bfollow-up outpatient visits? other than dietitian consultation visits\b/gi,
+   '營養師諮詢以外的覆診門診', '营养师咨询以外的复诊门诊'],
+  [/\bdietitian consultation follow-up outpatient visits?\b/gi, '營養師覆診門診', '营养师复诊门诊'],
+  [/\bprior outpatient visits? or Emergency consultations?\b/gi,
+   '之前的門診或急症診症', '之前的门诊或急症诊症'],
+  [/\bSpecified Endoscopy Procedures?\b/gi, '指明內視鏡檢查程序', '指明内视镜检查程序'],
+  [/\bSchedule of Surgical Procedures\b/gi, '《外科手術表》', '《外科手术表》'],
+  [/\bsurgical category for the surgery\b/gi, '該手術的手術分類', '该手术的手术分类'],
+  [/\bexcept in the cases stated in Section\s*([\d\w.()]+)/gi,
+   '除第 $1 節所述情況外', '除第 $1 节所述情况外'],
+  // ---- time windows ----
+  [/\bwithin\s+(\d+)\s+days? before each Confinement or Day Case Procedure\b/gi,
+   '每次住院或日間手術程序前 $1 日內', '每次住院或日间手术程序前 $1 日内'],
+  [/\bmore than\s+(\d+)\s+days? before each Confinement or Day Case Procedure\b/gi,
+   '每次住院或日間手術程序前超過 $1 日', '每次住院或日间手术程序前超过 $1 日'],
+  [/\bwithin\s+(\d+)\s+days? after each discharge from Hospital or completion of Day Case Procedure( for performing the surgical procedure categorized as)?\b/gi,
+   '每次出院或完成日間手術程序後 $1 日內', '每次出院或完成日间手术程序后 $1 日内'],
+  [/\bwithin\s+(\d+)\s+days?\b/gi, '$1 日內', '$1 日内'],
+  [/\bmore than\s+(\d+)\s+days?\b/gi, '超過 $1 日', '超过 $1 日'],
+  [/\b(\d+)\s+days? before each admission\b/gi, '每次入院前 $1 日', '每次入院前 $1 日'],
+  // ---- benefit-item references ----
+  [/\b(?:benefit\s+)?limits? of benefit items?\s*\(?([a-z])\)?/gi,
+   '保障項目 ($1) 的賠償限額', '保障项目 ($1) 的赔偿限额'],
+  [/\b(?:benefit\s+)?limits? of benefits?\s*\(([IVX]+)\)/gi,
+   '保障 ($1) 的限額', '保障 ($1) 的限额'],
+  [/\(?\bitems?\s+\(?([a-z])\)?\s*[-–—]\s*\(?([a-z])\)?\)?/gi,
+   '保障項目 ($1) – ($2)', '保障项目 ($1) – ($2)'],
+  // ---- named benefit groups / defined terms ----
+  [/\bBenefit Contribution Amount\b/gi, '保障分擔額', '保障分担额'],
+  [/\bProsthetic Devices?\b/gi, '義肢裝置', '义肢装置'],
+  [/\bmedical implants?\b/gi, '醫療植入物', '医疗植入物'],
+  [/\bmedical appliances? benefit\b/gi, '醫療器具保障', '医疗器具保障'],
+  [/\bDay Case Procedures?\b/gi, '日間手術程序', '日间手术程序'],
+  [/\bDay Patients?\b/gi, '日間病人', '日间病人'],
+  [/\bEnhanced [Bb]enefits\b/gi, '增強保障', '增强保障'],
+  [/\bBasic [Bb]enefits\b/gi, '基本保障', '基本保障'],
+  [/\bOther [Bb]enefits\b/gi, '其他保障', '其他保障'],
+  [/\bOther Surgeries\b/gi, '其他手術', '其他手术'],
+  [/\bTerms and Conditions\b/gi, '保單條款', '保单条款'],
+  [/\bthe Supplement\b/gi, '《附加契約》', '《附加契约》'],
+  // ---- therapies ----
+  [/\bphysiotherapy\b/gi, '物理治療', '物理治疗'],
+  [/\bchiropractic treatment\b/gi, '脊醫治療', '脊医治疗'],
+  [/\boccupational therapy\b/gi, '職業治療', '职业治疗'],
+  [/\bspeech therapy\b/gi, '言語治療', '言语治疗'],
+  // ---- cover position ----
+  [/\bfull(y)?\s*cover(ed|age)?\b/gi, '全數保障', '全数保障'],
   [/\bno\s+dollar\s+limit\b/gi, '不設分項賠償限額', '不设分项赔偿限额'],
   [/\bno\s+itemised\s+sublimit\b/gi, '不設分項賠償限額', '不设分项赔偿限额'],
   [/\bunlimited\b/gi, '無限額', '无限额'],
   [/\bactual\s+cost\b/gi, '實際費用', '实际费用'],
+  [/\bnil\b/gi, '無', '无'],
+  // ---- units ----
   [/\bper\s+policy\s+year\b/gi, '每保單年度', '每保单年度'],
   [/\bper\s+day\b/gi, '每日', '每日'],
   [/\bper\s+visit\b/gi, '每次診症', '每次诊症'],
   [/\bper\s+surgery\b/gi, '每項手術', '每项手术'],
+  [/\bper\s+accident\b/gi, '每宗意外', '每宗意外'],
+  [/\bper\s+incident\b/gi, '每宗事故', '每宗事故'],
+  [/\bper\s+confinement\b/gi, '每次住院', '每次住院'],
+  [/\bper\s+disability\b/gi, '每項傷殘', '每项伤残'],
+  [/\bper\s+procedure\b/gi, '每項程序', '每项程序'],
+  [/\bper\s+month\b/gi, '每月', '每月'],
   [/\bmax(imum)?\s+(\d+)\s+days?\b/gi, '最多 $2 日', '最多 $2 日'],
+  [/\blump\s*sum\b/gi, '一筆過', '一笔过'],
+  [/\beach\s+item\b/gi, '每項', '每项'],
+  // ---- surgical categories ----
   [/\bcomplex\b/gi, '複雜', '复杂'],
   [/\bmajor\b/gi, '大型', '大型'],
   [/\bintermediate\b/gi, '中型', '中型'],
   [/\bminor\b/gi, '小型', '小型'],
-  [/(\d+)%\s*coinsurance/gi, '$1% 共同保險', '$1% 共同保险'],
-  [/subject to/gi, '設', '设'],
-  [/(\d+)%\s*of\s*surgeon'?s?\s*fee\s*payable/gi, '外科醫生費的 $1%', '外科医生费的 $1%'],
-  [/\bnil\b/gi, '無', '无'],
-  [/\(?\bitems?\s+\(?([a-z])\)?\s*[-–—]\s*\(?([a-z])\)?\)?/gi, '保障項目 ($1) – ($2)', '保障项目 ($1) – ($2)'],
   [/regardless of (the )?surgical categor(y|ies)/gi, '不論手術分類', '不论手术分类'],
-  [/\bper\s+accident\b/gi, '每宗意外', '每宗意外'],
-  [/\bper\s+incident\b/gi, '每宗事故', '每宗事故'],
-  [/\beach\s+item\b/gi, '每項', '每项'],
+  // ---- coinsurance / deductible ----
+  [/(\d+)%\s*of\s*surgeon'?s?\s*fee\s*payable/gi, '外科醫生費的 $1%', '外科医生费的 $1%'],
+  [/(\d+)%\s*coinsurance/gi, '$1% 共同保險', '$1% 共同保险'],
+  [/\bCoinsurance\b/gi, '共同保險', '共同保险'],
+  [/\bDeductibles?\b/gi, '自付費', '自付费'],
+  // ---- generic connectives, last of all ----
+  [/\bsubject to\b/gi, '設', '设'],
+  [/\bif applicable\b/gi, '如適用', '如适用'],
+  [/\bwhere applicable\b/gi, '如適用', '如适用'],
+  [/\bfor the following specified visits\b/gi, '就以下指明診症', '就以下指明诊症'],
+  [/\bexcluding\b/gi, '不包括', '不包括'],
+  [/\bdischarge from Hospital\b/gi, '出院', '出院'],
+  [/\bfollow-up outpatient visits?\b/gi, '覆診門診', '复诊门诊'],
+  [/\boutpatient visits?\b/gi, '門診', '门诊'],
+  [/\bEmergency consultations?\b/gi, '急症診症', '急症诊症'],
+  [/\bbenefit limits?\b/gi, '賠償限額', '赔偿限额'],
+  [/\bbenefit items?\b/gi, '保障項目', '保障项目'],
+  [/\bpolicy year\b/gi, '保單年度', '保单年度'],
+  [/\bConfinements?\b/gi, '住院', '住院'],
+  [/\bSection\s*([\d\w.()]+)/gi, '第 $1 節', '第 $1 节'],
+  [/\bof Part\s*([\d\w.]+)/gi, '第 $1 部', '第 $1 部'],
+  [/\bbefore each admission\b/gi, '每次入院前', '每次入院前'],
+  [/\bafter each discharge\b/gi, '每次出院後', '每次出院后'],
+  [/\bAll\b/g, '所有', '所有'],
+  [/\ball\b/g, '所有', '所有'],
+  [/\s+and\s+/g, ' 及 ', ' 及 '],
 ];
 
 function tr(key, ...args) {
@@ -352,4 +458,7 @@ function trBenefitName(code, name) {
 
 // Node (the test suite) loads this as a module; the browser loads it as a plain
 // script and ignores the export.
-if (typeof module !== 'undefined') module.exports = { T, LANGS, BENEFIT_NAMES };
+if (typeof module !== 'undefined') {
+  module.exports = { T, LANGS, BENEFIT_NAMES, LIMIT_RULES, trLimit,
+                     setLangForTest: (l) => { LANG = l; } };
+}
