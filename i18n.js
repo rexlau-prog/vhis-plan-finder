@@ -359,6 +359,53 @@ const LIMIT_RULES = [
   [/\bsurgical category for the surgery\b/gi, '該手術的手術分類', '该手术的手术分类'],
   [/\bexcept in the cases stated in Section\s*([\d\w.()]+)/gi,
    '除第 $1 節所述情況外', '除第 $1 节所述情况外'],
+  // ---- supplementary-benefit clauses (the detail drawer) ----
+  // These codes never appear in the comparison table, so they were left behind
+  // when the six headline items were translated. Longest phrase first, as
+  // always: a short rule above a long one eats its phrase.
+  [/\bPayable according to the benefit limits of respective benefit items\b/gi,
+   '按下列各保障項目的賠償限額支付', '按下列各保障项目的赔偿限额支付'],
+  [/\bhome nursing services provided by a Registered Nurse\b/gi,
+   '由註冊護士提供的家居護理服務', '由注册护士提供的家居护理服务'],
+  [/\bservices provided by a Registered Nurse\b/gi,
+   '由註冊護士提供的服務', '由注册护士提供的服务'],
+  [/\bwithin\s+(\d+)\s+days? after discharge from Hospital following a surgical procedure\b/gi,
+   '手術後出院起 $1 日內', '手术后出院起 $1 日内'],
+  [/\bwithin\s+(\d+)\s+days? after discharge from Hospital or completion of Day Case Procedure\b/gi,
+   '出院或完成日間手術程序後 $1 日內', '出院或完成日间手术程序后 $1 日内'],
+  [/\bwithin\s+(\d+)\s+days? before admission or Day Case Procedure\b/gi,
+   '入院或日間手術程序前 $1 日內', '入院或日间手术程序前 $1 日内'],
+  [/\bfollowing surgery or admission to Intensive Care Unit\b/gi,
+   '於手術後或入住深切治療部後', '于手术后或入住深切治疗部后'],
+  [/\bduring which surgical procedure categoris?zed as\b/gi,
+   '期間所進行、分類為', '期间所进行、分类为'],
+  [/\bhas been performed on the Insured Person\b/gi, '之手術', '之手术'],
+  [/\b(\d+)% of total transplantation cost\b/gi, '移植手術總費用的 $1%', '移植手术总费用的 $1%'],
+  [/\bFor transplantation of\b/gi, '適用於以下器官移植：', '适用于以下器官移植：'],
+  [/\bbone marrow\b/gi, '骨髓', '骨髓'],
+  // Organ names — these appear almost only in the transplant/dialysis rows, so a
+  // blanket mapping is safe here and leaves no half-English list like
+  // "適用於以下器官移植： heart，kidney，liver，lung or 骨髓".
+  [/\bsmall (?:bowel|intestine)\b/gi, '小腸', '小肠'],
+  [/\bheart\b/gi, '心臟', '心脏'],
+  [/\bkidneys?\b/gi, '腎臟', '肾脏'],
+  [/\blivers?\b/gi, '肝臟', '肝脏'],
+  [/\blungs?\b/gi, '肺', '肺'],
+  [/\bcorneas?\b/gi, '角膜', '角膜'],
+  [/\bpancreas\b/gi, '胰臟', '胰脏'],
+  [/\bof Relevant Benefit Payable\b/gi, '相關應付保障', '相关应付保障'],
+  [/\b(\d+)\s*prior\s*\+\s*(\d+)\s*follow-up visits?\b/gi,
+   '$1 次事前診症 + $2 次覆診', '$1 次事前诊症 + $2 次复诊'],
+  [/\bMaximum\s+(\d+)\s+days? per Policy Year\b/gi, '每保單年度最多 $1 日', '每保单年度最多 $1 日'],
+  [/\b(\d+)\s+visits? per day\b/gi, '每日 $1 次診症', '每日 $1 次诊症'],
+  [/\bper Living Donor Surgery\b/gi, '每次活體捐贈者手術', '每次活体捐赠者手术'],
+  [/\bper Specific Cancer Surgery\b/gi, '每次指定癌症手術', '每次指定癌症手术'],
+  [/\bper Accident\s*\/\s*mastectomy\b/gi, '每宗意外／乳房切除術', '每宗意外／乳房切除术'],
+  [/\bper non-surgical cancer treatment\b/gi, '每次非手術癌症治療', '每次非手术癌症治疗'],
+  [/\bDesignated Critical Illness(es)?\b/gi, '指定危疾', '指定危疾'],
+  [/\bIntensive Care Unit\b/gi, '深切治療部', '深切治疗部'],
+  [/\bNot applicable\b/gi, '不適用', '不适用'],
+  [/\bApplicable\b/gi, '適用', '适用'],
   // ---- time windows ----
   [/\bwithin\s+(\d+)\s+days? before each Confinement or Day Case Procedure\b/gi,
    '每次住院或日間手術程序前 $1 日內', '每次住院或日间手术程序前 $1 日内'],
@@ -444,7 +491,91 @@ const LIMIT_RULES = [
   [/\bof Part\s*([\d\w.]+)/gi, '第 $1 部', '第 $1 部'],
   [/\bbefore each admission\b/gi, '每次入院前', '每次入院前'],
   [/\bafter each discharge\b/gi, '每次出院後', '每次出院后'],
+  [/\bMaximum\b/g, '最多', '最多'],
+  [/\bmaximum\b/g, '最多', '最多'],
+  [/\b(\d+)\s+visits?\b/gi, '$1 次診症', '$1 次诊症'],
+  [/\bvisits?\b/gi, '診症', '诊症'],
+  [/\bup to\b/gi, '最高至', '最高至'],
+  [/\btaking place\b/gi, '發生', '发生'],
+  [/\bmonths?\b/gi, '個月', '个月'],
+  [/\bdays?\b/gi, '日', '日'],
+  [/\bunder the\b/gi, '根據', '根据'],
+  // ---- whole clauses ----
+  // Sentences common enough to be worth translating end-to-end. Doing it as a
+  // WHOLE clause is what makes these safe: the Chinese is written to read
+  // correctly on its own rather than assembled from substituted fragments.
+  [/\bPayable after exceeding the benefit amount payable under item\s*([IVX]+\s*\([a-z]\))/gi,
+   '超出第 $1 項可賠保障金額後方可賠償', '超出第 $1 项可赔保障金额后方可赔偿'],
+  [/\bPayable after exceeding the benefit amount payable under\b/gi,
+   '超出以下項目可賠保障金額後方可賠償：', '超出以下项目可赔保障金额后方可赔偿：'],
+  [/\bwithin (\d+) hours? of the Accident\b/gi, '意外發生後 $1 小時內', '意外发生后 $1 小时内'],
+  [/\bwithin (\d+) days? of the Accident\b/gi, '意外發生後 $1 日內', '意外发生后 $1 日内'],
+  [/\b(\d+)% of the sum of surgical expenses for organ transplantation\b/gi,
+   '器官移植手術費用總額的 $1%', '器官移植手术费用总额的 $1%'],
+
+  // ---- gaps the live drawer exposed ----
+  [/\bwithin (\d+) days? after discharge from Hospital\b/gi, '出院後 $1 日內', '出院后 $1 日内'],
+  [/\bservices provided by (\d+) Registered Nurse[s]?\b/gi,
+   '由 $1 名註冊護士提供之服務', '由 $1 名注册护士提供之服务'],
+  [/\bamounts? payable under\b/gi, '以下項目之可賠金額', '以下项目之可赔金额'],
+  [/\bDesignated Healthcare Services Providers?\b/gi, '指定醫療服務提供者', '指定医疗服务提供者'],
+  [/\bmainland China\b/gi, '中國內地', '中国内地'],
+  [/\bdialysis\b/gi, '透析', '透析'],
+  [/\bsurgeries\b/gi, '手術', '手术'],
+  [/\bsurgery\b/gi, '手術', '手术'],
+  [/\bincurred\b/gi, '所產生', '所产生'],
+
+  // ---- recurring boilerplate ----
+  // Only phrases that map IN PLACE. Plenty of frequent spans are deliberately
+  // absent — "starting from the", "services provided by", "payable after
+  // exceeding the" are postpositional in Chinese, so substituting them where
+  // they stand scrambles the clause. Those stay English on purpose.
+  [/\bthe Terms and Benefits\b/gi, '《保單條款及權益》', '《保单条款及权益》'],
+  [/\bTerms and Benefits\b/gi, '《保單條款及權益》', '《保单条款及权益》'],
+  [/\bsleep apnea tests?\b/gi, '睡眠窒息症檢查', '睡眠窒息症检查'],
+  [/\bprescribed non-surgical cancer treatments?\b/gi, '處方非手術癌症治療', '处方非手术癌症治疗'],
+  [/\bpre-approval by the [Cc]ompany\b/gi, '須經本公司預先批核', '须经本公司预先批核'],
+  [/\bin accordance with\b/gi, '按照', '按照'],
+  [/\bin excess of the\b/gi, '超出', '超出'],
+  [/\bin excess of\b/gi, '超出', '超出'],
+  [/\bfor each disability\b/gi, '每次傷殘', '每次伤残'],
+  [/\bunder basic benefit\b/gi, '（基本保障下）', '（基本保障下）'],
+  [/\bdue to strokes?\b/gi, '因中風', '因中风'],
+  [/\bas a direct result of\b/gi, '直接因以下原因引致：', '直接因以下原因引致：'],
+  [/\bper continuous twenty-four hours?\b/gi, '每連續二十四小時', '每连续二十四小时'],
+  [/\bin total for\b/gi, '合共', '合共'],
+
+  // ---- defined terms ----
+  // Nouns with a settled Chinese equivalent in HK policy wording. These are
+  // TERMS, not grammar: each maps one-for-one, so translating them cannot change
+  // what a condition means. The clause structure around them is deliberately
+  // left in English — see the note above LIMIT_RULES.
+  // Multi-word entries must stay ABOVE the connectives below, or "and"/"or"
+  // would split them ("Room 及 Board").
+  [/\bRoom and Board\b/gi, '病房及膳食', '病房及膳食'],
+  [/\bIntensive Care Unit\b/gi, '深切治療部', '深切治疗部'],
+  [/\bAnnual Benefit Limit\b/gi, '每年保障限額', '每年保障限额'],
+  [/\bLifetime Benefit Limit\b/gi, '終身保障限額', '终身保障限额'],
+  [/\bEligible Expenses?\b/gi, '合資格費用', '合资格费用'],
+  [/\bRegistered Nurse\b/gi, '註冊護士', '注册护士'],
+  [/\bsurgical procedures?\b/gi, '外科手術', '外科手术'],
+  [/\bday case procedures?\b/gi, '日間手術', '日间手术'],
+  [/\bprescribed (?:medicines?|drugs?)\b/gi, '處方藥物', '处方药物'],
+  [/\bspecialist\b/gi, '專科醫生', '专科医生'],
+  [/\banaesthetists?\b/gi, '麻醉科醫生', '麻醉科医生'],
+  [/\bradiologists?\b/gi, '放射科醫生', '放射科医生'],
+  [/\bsurgeons?\b/gi, '外科醫生', '外科医生'],
+  [/\bphysicians?\b/gi, '醫生', '医生'],
+  [/\breimbursements?\b/gi, '賠償', '赔偿'],
+  [/\boutpatients?\b/gi, '門診', '门诊'],
+  [/\binpatients?\b/gi, '住院', '住院'],
+  [/\bhospitals?\b/gi, '醫院', '医院'],
+  [/\bdiagnos(?:is|tic)\b/gi, '診斷', '诊断'],
+  [/\btreatments?\b/gi, '治療', '治疗'],
+  [/\bconsultations?\b/gi, '診症', '诊症'],
   [/\bAll\b/g, '所有', '所有'],
+  [/\bor\b/gi, '或', '或'],
+  [/\band\b/gi, '及', '及'],
   [/\ball\b/g, '所有', '所有'],
   [/\s+and\s+/g, ' 及 ', ' 及 '],
 ];
@@ -456,10 +587,28 @@ function tr(key, ...args) {
 // Chinese states the unit BEFORE the amount ("每日 $750", "每保單年度 最多 180 日"),
 // which is the reverse of the English source — reorder after substitution so the
 // wording matches the regulator's Chinese schedules.
-const UNITS = '每日|每保單年度|每保单年度|每次診症|每次诊症|每項手術|每项手术|每宗意外|每宗事故|每項|每项';
+// Longest alternative FIRST — regex alternation is leftmost-first, so a short
+// unit listed before a longer one containing it would split the longer phrase
+// ("每宗意外" would tear "每宗意外／乳房切除術" in half).
+const UNITS = [
+  '每宗意外／乳房切除術', '每宗意外/乳房切除术',
+  '每次活體捐贈者手術', '每次活体捐赠者手术',
+  '每次指定癌症手術', '每次指定癌症手术',
+  '每次非手術癌症治療', '每次非手术癌症治疗',
+  '每保單年度', '每保单年度', '每次診症', '每次诊症',
+  '每月', '每星期', '每年', '每次住院',
+  '每項手術', '每项手术', '每宗意外', '每宗事故',
+  '每日', '每項', '每项',
+].join('|');
 const REORDER = [
-  [new RegExp(`(\\$?[\\d,]+(?:\\.\\d+)?)\\s*(${UNITS})`, 'g'), '$2 $1'],
-  [new RegExp(`(最多\\s*\\d+\\s*日)\\s*(${UNITS})`, 'g'), '$2 $1'],
+  // `\d[\d,]*` not `[\d,]+`: the latter matches a BARE COMMA, so a list like
+  // "…最多 30 日, 每日 2 次診症" had its comma treated as the number and the
+  // following unit swapped onto it — "每保單年度每日 最多 30 日 , 2 次診症".
+  [new RegExp(`(\\$?\\d[\\d,]*(?:\\.\\d+)?)\\s*(${UNITS})`, 'g'), '$2 $1'],
+  [new RegExp(`(最多\\s*\\d+\\s*(?:次診症|個月|个月|日|次|週|周))\\s*(${UNITS})`, 'g'), '$2 $1'],
+  // "最高至 每保單年度 $3,000" reads as a dangling preposition in Chinese; the
+  // unit belongs in front of the cap — "每保單年度最高 $3,000".
+  [new RegExp(`最高至\\s*(${UNITS}|每次傷殘|每次伤残|每次住院)\\s*(\\$?\\d[\\d,]*)`, 'g'), '$1最高 $2'],
 ];
 
 // Translate an English limit cell into the current language, preserving the
@@ -472,15 +621,142 @@ function trLimit(raw) {
   for (const [re, rep] of REORDER) out = out.replace(re, rep);
   return out.replace(/,\s+(?=\D)/g, '，').replace(/\s{2,}/g, ' ').trim();
 }
+// Supplementary (non-statutory) benefit names. The statutory items a-l are a
+// fixed list in BENEFIT_NAMES; everything above them is each insurer's own
+// wording, 595 distinct titles once footnote markers are folded away. These are
+// exact matches rather than rewrite rules: a benefit TITLE has to be right, and
+// assembling one from substituted words is how "Room and Board" became
+// "Room 及 Board".
+const SUPP_NAMES = {
+  "compassionate death benefit": ["恩恤身故保障", "恩恤身故保障"],
+  "accidental death benefit": ["意外身故保障", "意外身故保障"],
+  "death benefit": ["身故保障", "身故保障"],
+  "companion bed": ["陪伴床位", "陪伴床位"],
+  "hospital companion bed": ["醫院陪伴床位", "医院陪伴床位"],
+  "hospital companion bed benefit": ["醫院陪伴床位保障", "医院陪伴床位保障"],
+  "pregnancy complications": ["懷孕併發症", "怀孕并发症"],
+  "complications of pregnancy": ["懷孕併發症", "怀孕并发症"],
+  "outpatient kidney dialysis": ["門診腎臟透析", "门诊肾脏透析"],
+  "kidney dialysis": ["腎臟透析", "肾脏透析"],
+  "hospice care": ["善終護理", "善终护理"],
+  "hospice and palliative care": ["善終及紓緩護理", "善终及纾缓护理"],
+  "post-confinement home nursing": ["出院後家居護理", "出院后家居护理"],
+  "post-surgery home nursing": ["手術後家居護理", "手术后家居护理"],
+  "home nursing": ["家居護理", "家居护理"],
+  "private nursing": ["私家看護", "私家看护"],
+  "private nurse's fee": ["私家看護費", "私家看护费"],
+  "medical negligence benefit": ["醫療疏忽保障", "医疗疏忽保障"],
+  "emergency outpatient care": ["急症門診護理", "急症门诊护理"],
+  "room and board": ["病房及膳食", "病房及膳食"],
+  "operating theatre charges": ["手術室費用", "手术室费用"],
+  "miscellaneous charges": ["雜項費用", "杂项费用"],
+  "intensive care": ["深切治療", "深切治疗"],
+  "isolation room": ["隔離病房", "隔离病房"],
+  "donor's benefit": ["捐贈者保障", "捐赠者保障"],
+  "expenses for living donor surgery": ["活體捐贈者手術費用", "活体捐赠者手术费用"],
+  "accidental outpatient treatment": ["意外門診治療", "意外门诊治疗"],
+  "emergency outpatient accidental treatment": ["急症門診意外治療", "急症门诊意外治疗"],
+  "emergency outpatient treatment for accident": ["意外急症門診治療", "意外急症门诊治疗"],
+  "emergency outpatient treatment for accidents": ["意外急症門診治療", "意外急症门诊治疗"],
+  "emergency outpatient treatment benefit (accident only)": ["急症門診治療保障（只限意外）", "急症门诊治疗保障（只限意外）"],
+  "emergency outpatient dental treatment": ["急症門診牙科治療", "急症门诊牙科治疗"],
+  "emergency dental care": ["急症牙科護理", "急症牙科护理"],
+  "surgeon's fee": ["外科醫生費", "外科医生费"],
+  "anaesthetist's fee": ["麻醉科醫生費", "麻醉科医生费"],
+  "specialist's fee": ["專科醫生費", "专科医生费"],
+  "attending doctor's visit fee": ["主診醫生巡房費", "主诊医生巡房费"],
+  "medical appliances benefit for reconstructive surgery": ["重建手術醫療器材保障", "重建手术医疗器材保障"],
+  "reconstructive surgery benefit": ["重建手術保障", "重建手术保障"],
+  "specified reconstructive surgery benefit": ["指定重建手術保障", "指定重建手术保障"],
+  "reconstructive surgery for specific cancer": ["指定癌症重建手術", "指定癌症重建手术"],
+  "rehabilitation": ["復康治療", "复康治疗"],
+  "rehabilitation benefit": ["復康治療保障", "复康治疗保障"],
+  "rehabilitation treatment": ["復康治療", "复康治疗"],
+  "stroke rehabilitation treatment - disability subsidy benefit": ["中風復康治療 — 傷殘補助保障", "中风复康治疗 — 伤残补助保障"],
+  "stroke rehabilitation treatment - home facility enhancement benefit": ["中風復康治療 — 家居設施改善保障", "中风复康治疗 — 家居设施改善保障"],
+  "stroke rehabilitation treatment - stroke ancillary benefit": ["中風復康治療 — 中風輔助保障", "中风复康治疗 — 中风辅助保障"],
+  "cash benefit for top-up subsidy": ["補助現金保障", "补助现金保障"],
+  "cash benefit for designated day case procedures": ["指定日間手術現金保障", "指定日间手术现金保障"],
+  "medical accident and incident extension benefit": ["醫療事故及意外延伸保障", "医疗事故及意外延伸保障"],
+  "traditional chinese medicine for specified cancer": ["指定癌症中醫治療", "指定癌症中医治疗"],
+  "non-conventional treatment for covered cancer": ["受保癌症非傳統治療", "受保癌症非传统治疗"],
+  "post-confinement/day case procedure chinese medicine treatment": ["出院／日間手術後中醫治療", "出院／日间手术后中医治疗"],
+  "post-surgical procedure/day case procedure chinese medicine practitioner outpatient care": ["手術／日間手術後中醫門診護理", "手术／日间手术后中医门诊护理"],
+  "consultation or acupuncture by a registered chinese medicine practitioner after confinement or specific treatments": ["出院或特定治療後註冊中醫診症或針灸", "出院或特定治疗后注册中医诊症或针灸"],
+  "additional post-confinement/day case procedure outpatient ancillary benefit": ["出院／日間手術後額外門診輔助保障", "出院／日间手术后额外门诊辅助保障"],
+  "day patient kidney dialysis": ["日間病人腎臟透析", "日间病人肾脏透析"],
+  "dialysis": ["透析治療", "透析治疗"],
+  "treatments for outpatient kidney dialysis": ["門診腎臟透析治療", "门诊肾脏透析治疗"],
+  "prosthetic device": ["義肢裝置", "义肢装置"],
+  "medical implants": ["醫療植入物", "医疗植入物"],
+  "medical implants - other items": ["醫療植入物 — 其他項目", "医疗植入物 — 其他项目"],
+  "post-confinement/day case procedure outpatient ancillary benefit": ["出院／日間手術後門診輔助保障", "出院／日间手术后门诊辅助保障"],
+  "pre- and post-confinement / day case procedure outpatient care": ["住院／日間手術前後門診護理", "住院／日间手术前后门诊护理"],
+  "second claims incentive": ["第二次索償獎賞", "第二次索偿奖赏"],
+  "home facility enhancement due to stroke": ["因中風之家居設施改善", "因中风之家居设施改善"],
+  "prescribed non-surgical cancer treatments": ["處方非手術癌症治療", "处方非手术癌症治疗"],
+  "check-up benefit": ["身體檢查保障", "身体检查保障"],
+  "emergency outpatient treatment benefit": ["急症門診治療保障", "急症门诊治疗保障"],
+  "emergency outpatient treatment": ["急症門診治療", "急症门诊治疗"],
+  "emergency outpatient treatment due to accident": ["因意外之急症門診治療", "因意外之急症门诊治疗"],
+  "emergency outpatient dental treatment due to accident": ["因意外之急症門診牙科治療", "因意外之急症门诊牙科治疗"],
+  "cash benefit for confinement in lower ward class of a private hospital": ["入住私家醫院較低級別病房現金保障", "入住私家医院较低级别病房现金保障"],
+  "cash benefit for room and board confinement below entitled ward class in a private hospital in hong kong": ["入住香港私家醫院低於合資格級別病房之病房及膳食現金保障", "入住香港私家医院低于合资格级别病房之病房及膳食现金保障"],
+  "cash benefit for confinement in intensive care unit in hong kong": ["入住香港深切治療部現金保障", "入住香港深切治疗部现金保障"],
+  "supplementary major medical benefit": ["附加住院及手術保障", "附加住院及手术保障"],
+  "personal medical case management services": ["個人醫療個案管理服務", "个人医疗个案管理服务"],
+  "non-confinement sleep apnea test": ["非住院睡眠窒息症檢查", "非住院睡眠窒息症检查"],
+  "phase 3 clinical trial drugs benefit for stage iii and stage iv specified cancers and incurable haematological malignancy": ["第三及第四期指定癌症與不可治癒血液惡性腫瘤之第三期臨床試驗藥物保障", "第三及第四期指定癌症与不可治愈血液恶性肿瘤之第三期临床试验药物保障"],
+  "top-up subsidy benefit": ["補助保障", "补助保障"],
+  "day case procedure cash allowance": ["日間手術現金津貼", "日间手术现金津贴"],
+  "cash benefit for day case procedure": ["日間手術現金保障", "日间手术现金保障"],
+  "day surgery cash benefit": ["日間手術現金保障", "日间手术现金保障"],
+  "outpatient surgery cash allowance": ["門診手術現金津貼", "门诊手术现金津贴"],
+  "special cash allowance": ["特別現金津貼", "特别现金津贴"],
+  "hospitalization transportation cash allowance": ["住院交通現金津貼", "住院交通现金津贴"],
+  "medical negligence coverage": ["醫療疏忽保障", "医疗疏忽保障"],
+  "hospice care benefit": ["善終護理保障", "善终护理保障"],
+  "ancillary services (physiotherapy / occupational therapy / speech therapy / chiropractic treatment)": ["輔助服務（物理治療／職業治療／言語治療／脊醫治療）", "辅助服务（物理治疗／职业治疗／言语治疗／脊医治疗）"],
+  "chinese medicine practitioner outpatient care": ["中醫門診護理", "中医门诊护理"],
+  "post-confinement/day case procedure chinese medicine practitioner outpatient care": ["出院／日間手術後中醫門診護理", "出院／日间手术后中医门诊护理"],
+  "additional benefit for prescribed non-surgical cancer treatments, kidney dialysis and organ or bone marrow transplantation": ["處方非手術癌症治療、腎臟透析及器官或骨髓移植額外保障", "处方非手术癌症治疗、肾脏透析及器官或骨髓移植额外保障"],
+  "prescribed diagnostic imaging tests": ["處方診斷造影檢查", "处方诊断造影检查"],
+  "rehabilitative care": ["復康護理", "复康护理"],
+  "reconstructive surgery": ["重建手術", "重建手术"],
+  "registered private nurse's fees": ["註冊私家看護費用", "注册私家看护费用"],
+  "companion bed at hospital": ["醫院陪伴床位", "医院陪伴床位"],
+  "severe urban chronic disease additional benefit": ["嚴重都市慢性病額外保障", "严重都市慢性病额外保障"],
+  "cash benefit for major and complex surgeries": ["大型及複雜手術現金保障", "大型及复杂手术现金保障"],
+  "cash benefit for day case procedure - designated day case procedure(s) performed at a designated healthcare services provider or in mainland china": ["日間手術現金保障 — 於指定醫療服務提供者或中國內地進行之指定日間手術", "日间手术现金保障 — 于指定医疗服务提供者或中国内地进行之指定日间手术"],
+};
+
+// "Hospice care" and "Hospice care (7)" are the same benefit wearing a
+// document-specific footnote marker. Fold the marker away for the lookup and
+// put it back afterwards, so one entry serves every variant.
+const NAME_MARKER = /\s*\((\d{1,2})\)\s*$/;
+function normName(s) {
+  // Markers also appear MID-title ("Non-conventional Treatment (16) for Covered
+  // Cancer"), so strip every one for the lookup key. Only the trailing marker is
+  // restored afterwards — an interior one has no unambiguous home in the Chinese
+  // word order, and the note tooltip is keyed on the row, not the position.
+  return String(s || '').replace(/\s*\(\d{1,2}\)/g, '')
+                        .replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 function trBenefitName(code, name) {
   if (LANG === 'en') return name;
+  const i = LANG === 'hk' ? 0 : 1;
   const e = BENEFIT_NAMES[(code || '').toLowerCase()];
-  return e ? e[LANG === 'hk' ? 0 : 1] : name;   // supplementary items keep source wording
+  if (e) return e[i];
+  const supp = SUPP_NAMES[normName(name)];
+  if (!supp) return name;                       // untitled in our map: show it as published
+  const m = NAME_MARKER.exec(String(name || ''));
+  return supp[i] + (m ? ` (${m[1]})` : '');     // keep the marker; the note tooltip reads it
 }
 
 // Node (the test suite) loads this as a module; the browser loads it as a plain
 // script and ignores the export.
 if (typeof module !== 'undefined') {
-  module.exports = { T, LANGS, BENEFIT_NAMES, LIMIT_RULES, trLimit,
+  module.exports = { T, LANGS, BENEFIT_NAMES, SUPP_NAMES, LIMIT_RULES, trLimit, trBenefitName,
                      setLangForTest: (l) => { LANG = l; } };
 }
