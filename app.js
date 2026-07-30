@@ -7,6 +7,7 @@ let PRODUCTS = [];        // all products (rows)
 let LAST_RESULTS = [];    // current sorted result set (for export)
 let CURRENT_PID = null;   // product shown in the drawer (re-rendered on language switch)
 let TAXO = null;          // benefit_taxonomy.json — the canonical 12 + 37 slot grid
+let BASICS = null;        // plan_basics.json — ward class, deductible, territorial scope
 const state = {
   age: 35, gender: 'M', freq: 'annual', currency: 'HKD', smoker: false,
   search: '', insurer: '', ptype: '', openOnly: true, smmOnly: false,
@@ -266,12 +267,11 @@ function openDrawer(pid) {
       benefitHtml = `<table class="mini benefit"><tbody>${benefits.map(b =>
         `<tr><td>${sectionTag(b.code)}${trBenefitName(b.code, b.name)}</td><td class="num">${withNotes(trLimit(b.raw), dn2) || '—'}</td></tr>`).join('')}</tbody></table>`;
     }
-    const sched = q(`SELECT annual_benefit_limit, lifetime_benefit_limit FROM benefit_schedules
-      WHERE schedule_hash=(SELECT schedule_hash FROM product_benefit WHERE product_id=?)`, [pid])[0];
-    if (sched) benefitHtml = `<table class="mini"><tbody>
-      <tr><td><b>${tr('annualLimit')}</b></td><td class="num">${trLimit(sched.annual_benefit_limit) || '—'}</td></tr>
-      <tr><td><b>${tr('lifetimeLimit')}</b></td><td class="num">${trLimit(sched.lifetime_benefit_limit) || '—'}</td></tr>
-      </tbody></table>` + benefitHtml;
+    // The five basics come first: an agent states these before opening the
+    // benefit table at all.
+    benefitHtml = `<h4 class="basics-h">${tr('basicsTitle')}</h4>
+      <table class="mini basics"><tbody>${planBasics(pid).map(([k, v]) =>
+        `<tr><td><b>${k}</b></td><td class="num">${v}</td></tr>`).join('')}</tbody></table>` + benefitHtml;
   } else {
     benefitHtml = `<p class="note">${tr('noBenefits')}</p>`;
   }
@@ -478,6 +478,62 @@ function procName(procedure) {
   return (tr('proc') || {})[procedure] || procedure;
 }
 
+// ---------------------------------------------------------------- plan basics
+// The five facts an agent states before anything else. Annual and lifetime
+// limits sit on the schedule. Ward class and deductible come from plan_basics —
+// NOT from benefit_schedules.deductible, which is a per-SCHEDULE column holding
+// a per-PLAN-LEVEL fact: one schedule covers eight levels priced HKD0 / 20,000 /
+// 50,000 / 96,000 and stamps all of them with a single figure, so it disagreed
+// with the plan's own level name on 139 products. Territorial scope came from
+// the statutory Part 6 s.1(a) clause in the plan documents; the database never
+// held it.
+//
+// "Not applicable" and "not stated" are rendered differently on purpose. A
+// Standard plan has no ward class because the statute fixes room and board at
+// $750/day — that is an answer, not a gap, and collapsing the two would send an
+// agent hunting for a figure that does not exist.
+const basicText = (trio) => {
+  if (!trio) return null;
+  const [v, zh, cn] = trio;
+  if (v === 'NOT_APPLICABLE') {
+    return { na: true, txt: LANG === 'en' ? 'Not applicable' : (LANG === 'cn' ? cn : zh) };
+  }
+  return { txt: (LANG === 'en' ? v : (LANG === 'cn' ? cn : zh)) || v };
+};
+
+/** The five basic facts for one plan, as [label, cell] pairs. */
+function planBasics(pid) {
+  const e = (BASICS && BASICS.by_product && BASICS.by_product[pid]) || {};
+  const sched = q(`SELECT annual_benefit_limit a, lifetime_benefit_limit l
+                   FROM benefit_schedules WHERE schedule_hash=
+                     (SELECT schedule_hash FROM product_benefit WHERE product_id=?)`, [pid])[0];
+  const terr = e.t != null && BASICS && BASICS.territorial
+    ? BASICS.territorial[String(e.t)] : null;
+  const cell = (b) => !b ? `<span class="basic-none">${tr('notStated')}</span>`
+    : b.na ? `<span class="basic-na">${b.txt}</span>` : b.txt;
+  return [
+    [tr('bWard'), cell(basicText(e.w))],
+    [tr('bDeduct'), cell(basicText(e.d))],
+    [tr('annualLimit'), (sched && trLimit(sched.a)) || `<span class="basic-none">${tr('notStated')}</span>`],
+    [tr('lifetimeLimit'), (sched && trLimit(sched.l)) || `<span class="basic-none">${tr('notStated')}</span>`],
+    [tr('bTerritory'), terr ? (LANG === 'en' ? terr.en : (LANG === 'cn' ? terr.cn : terr.zh))
+                            : `<span class="basic-none">${tr('notStated')}</span>`],
+  ];
+}
+
+/** The same five facts, side by side across the compared plans. */
+function basicsTable(plans) {
+  if (!BASICS) return '';
+  const per = plans.map(p => planBasics(p.product_id));
+  return `<h3 class="taxo-h">${tr('basicsTitle')}</h3>
+    <table class="cmp-table taxo basics"><thead><tr><th></th>${plans.map(p =>
+      `<th class="cmp-plan">${pName(p)}</th>`).join('')}</tr></thead><tbody>${
+      per[0].map(([label], i) =>
+        `<tr class="taxo-row"><th>${label}</th>${
+          per.map(rows => `<td class="num">${rows[i][1]}</td>`).join('')}</tr>`).join('')
+    }</tbody></table>`;
+}
+
 // ------------------------------------------------------- benefit taxonomy grid
 // The statutory items are standardised by law, so every plan can be lined up on
 // them. Everything above them is each insurer's own wording — 583 distinct
@@ -599,6 +655,7 @@ function openCompare() {
           vals.map(v => `<td class="${cls === 'big' ? 'big' : cls === 'gap' ? 'gapcell' : 'num'}">${v}</td>`).join('')}</tr>`).join('')}
       </tbody></table>
     ${bench ? `<p class="note gapnote">${tr('gapNote', bench.hospitals)}</p>` : ''}
+    ${basicsTable(plans)}
     ${taxonomyTable(plans)}`;
   renderGapPicker();
   // The toggle is meaningless for the 573 plans that publish one set of limits,
@@ -896,6 +953,8 @@ async function main() {
     setSurgicalSchedule(SOSP_ROWS);
     TAXO = JSON.parse(new TextDecoder().decode(
       await loadGz('benefit_taxonomy.json.gz', 'benefit_taxonomy.json')));
+    BASICS = JSON.parse(new TextDecoder().decode(
+      await loadGz('plan_basics.json.gz', 'plan_basics.json')));
   } catch (e) { console.warn('coverage-gap data unavailable', e); }
   // flags are stored as TEXT "0"/"1" (both truthy in JS) — coerce to numbers
   PRODUCTS.forEach(p => { p.has_smm = +p.has_smm; p.tax_deductible = +p.tax_deductible; p.de_registered = +p.de_registered; });

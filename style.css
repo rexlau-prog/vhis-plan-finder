@@ -274,3 +274,14 @@ abbr.fn:hover::after, abbr.fn:focus-visible::after { opacity: 1; visibility: vis
 .cmp-table.taxo tr.taxo-row th{padding-left:14px;color:var(--muted)}
 .cmp-table.taxo tr.taxo-empty th,.cmp-table.taxo tr.taxo-empty td{opacity:.45}
 .cmp-table.taxo td.taxo-none{color:var(--muted)}
+
+/* ---- plan basics ---- */
+/* "Not applicable" and "not stated" must not look alike. A Standard plan has no
+   ward class because the statute fixes room and board — that is an answer. A
+   blank is a gap in the data. Rendering both as an em dash invited an agent to
+   go hunting for a figure that does not exist. */
+.basics-h{margin:18px 0 6px;font-size:13px;font-weight:700;color:var(--ink)}
+.mini.basics td:first-child{width:38%}
+.basic-na{color:var(--muted);font-style:italic}
+.basic-none{color:var(--muted);opacity:.7}
+.basic-none::before{content:'—  ';font-style:normal}
