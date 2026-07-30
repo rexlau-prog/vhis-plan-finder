@@ -6,6 +6,7 @@ let db = null;
 let PRODUCTS = [];        // all products (rows)
 let LAST_RESULTS = [];    // current sorted result set (for export)
 let CURRENT_PID = null;   // product shown in the drawer (re-rendered on language switch)
+let TAXO = null;          // benefit_taxonomy.json — the canonical 12 + 37 slot grid
 const state = {
   age: 35, gender: 'M', freq: 'annual', currency: 'HKD', smoker: false,
   search: '', insurer: '', ptype: '', openOnly: true, smmOnly: false,
@@ -477,6 +478,90 @@ function procName(procedure) {
   return (tr('proc') || {})[procedure] || procedure;
 }
 
+// ------------------------------------------------------- benefit taxonomy grid
+// The statutory items are standardised by law, so every plan can be lined up on
+// them. Everything above them is each insurer's own wording — 583 distinct
+// titles with no shared structure. benefit_taxonomy.json maps those titles onto
+// 37 canonical slots so two plans can be compared row by row instead of
+// paragraph by paragraph.
+//
+// The section codes in the source (II-a, III-b …) look like they would do this
+// job and do not: they are positional inside each insurer's own document. Half
+// of them carry more than one distinct benefit, and "compassionate death
+// benefit" alone appears under 24 different codes.
+const taxoLabel = o => (o ? (LANG === 'en' ? o.en : LANG === 'cn' ? o.cn : o.zh) : '');
+const taxoNorm = s => String(s == null ? '' : s)
+  .replace(/\s*\((\d+)\)/g, '').replace(/[’‘]/g, "'").replace(/\s+/g, ' ').trim();
+
+/** Which canonical slot a benefit row belongs to, or null. */
+function slotFor(row) {
+  if (!TAXO) return null;
+  const code = String(row.code || '');
+  // The statutory guard is not optional. Without it the three "Pre- and
+  // post-Confinement outpatient care" keys drag 496 products' statutory item (k)
+  // into SV-d, which holds 26 products of genuinely ADDITIONAL cover.
+  if (new RegExp(TAXO.statutory_guard).test(code)) return 'BA-' + code[0];
+  return TAXO.map[taxoNorm(row.name)] || null;
+}
+
+/** slot code -> the limit text this plan publishes for it. */
+function slotValues(pid) {
+  const rows = q(`SELECT bi.code, bi.name, bi.column, bi.raw
+                  FROM benefit_items bi JOIN product_benefit pb USING(schedule_hash)
+                  WHERE pb.product_id=? ORDER BY bi.code, bi.column`, [pid]);
+  // Presence is read from ANY column: six PRUHealth schedules publish no 'limit'
+  // column at all and keep their values in Network / Non-network, so filtering to
+  // 'limit' would empty those plans out. Where a plan does offer both tiers the
+  // agent's toggle decides which is shown.
+  const chosen = pickTierRows(rows, state.tier);
+  const out = {};
+  for (const code in chosen) {
+    const r = chosen[code];
+    const slot = slotFor(r);
+    if (!slot) continue;
+    const txt = String(r.raw || '').trim();
+    if (txt && !(out[slot] || []).includes(txt)) (out[slot] ||= []).push(txt);
+  }
+  // The two whole-plan ceilings are not benefit rows; they live on the schedule.
+  const sch = q(`SELECT annual_benefit_limit a, lifetime_benefit_limit l
+                 FROM benefit_schedules WHERE schedule_hash=
+                   (SELECT schedule_hash FROM product_benefit WHERE product_id=?)`, [pid])[0];
+  if (sch) {
+    if (sch.a) out['SP-f'] = [String(sch.a)];
+    if (sch.l) out['SP-g'] = [String(sch.l)];
+  }
+  return out;
+}
+
+/** The fixed 12 + 37 grid: every plan on every slot, offered or not. */
+function taxonomyTable(plans) {
+  if (!TAXO) return '';
+  const vals = plans.map(p => slotValues(p.product_id));
+  const rows = [];
+  for (const g of TAXO.groups) {
+    const slots = TAXO.slots.filter(s => s.g === g.c);
+    // A group every compared plan is silent on says nothing; drop it rather than
+    // print a block of dashes.
+    if (!slots.some(s => vals.some(v => v[s.c]))) continue;
+    rows.push(`<tr class="taxo-group"><th colspan="${plans.length + 1}">${taxoLabel(g)}</th></tr>`);
+    slots.forEach(s => {
+      const cells = vals.map(v => {
+        const got = v[s.c];
+        if (!got) return `<td class="num taxo-none">—</td>`;
+        return `<td class="num">${got.map(t => trLimit(t)).join('<br />')}</td>`;
+      }).join('');
+      const off = vals.every(v => !v[s.c]) ? ' taxo-empty' : '';
+      rows.push(`<tr class="taxo-row${off}"><th>${taxoLabel(s)}</th>${cells}</tr>`);
+    });
+  }
+  if (!rows.length) return '';
+  return `<h3 class="taxo-h">${tr('taxoTitle')}</h3>
+    <table class="cmp-table taxo"><thead><tr><th></th>${plans.map(p =>
+      `<th class="cmp-plan">${pName(p)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.join('')}</tbody></table>
+    <p class="note">${tr('taxoNote')}</p>`;
+}
+
 function renderGapPicker() {
   const el = $('#gapPick');
   if (!el || !BENCH) return;
@@ -513,7 +598,8 @@ function openCompare() {
         `<tr class="${cls === 'gap' ? 'gaprow' : cls === 'sub' ? 'subrow' : ''}"><th>${label}</th>${
           vals.map(v => `<td class="${cls === 'big' ? 'big' : cls === 'gap' ? 'gapcell' : 'num'}">${v}</td>`).join('')}</tr>`).join('')}
       </tbody></table>
-    ${bench ? `<p class="note gapnote">${tr('gapNote', bench.hospitals)}</p>` : ''}`;
+    ${bench ? `<p class="note gapnote">${tr('gapNote', bench.hospitals)}</p>` : ''}
+    ${taxonomyTable(plans)}`;
   renderGapPicker();
   // The toggle is meaningless for the 573 plans that publish one set of limits,
   // so it only appears when a plan on screen actually offers the choice.
@@ -808,6 +894,8 @@ async function main() {
     BENCH = JSON.parse(new TextDecoder().decode(await loadGz('cost_benchmarks.json.gz', 'cost_benchmarks.json')));
     SOSP_ROWS = JSON.parse(new TextDecoder().decode(await loadGz('surgical_schedule.json.gz', 'surgical_schedule.json')));
     setSurgicalSchedule(SOSP_ROWS);
+    TAXO = JSON.parse(new TextDecoder().decode(
+      await loadGz('benefit_taxonomy.json.gz', 'benefit_taxonomy.json')));
   } catch (e) { console.warn('coverage-gap data unavailable', e); }
   // flags are stored as TEXT "0"/"1" (both truthy in JS) — coerce to numbers
   PRODUCTS.forEach(p => { p.has_smm = +p.has_smm; p.tax_deductible = +p.tax_deductible; p.de_registered = +p.de_registered; });

@@ -246,3 +246,31 @@ abbr.fn::after {
 }
 abbr.fn:hover::after, abbr.fn:focus-visible::after { opacity: 1; visibility: visible; }
 @media print { abbr.fn::after { display: none; } }
+
+/* ---- benefit taxonomy grid (comparison) ---- */
+/* 49 rows is a lot to scan, so the group headers do the navigating and the
+   slots no compared plan offers are dimmed rather than removed — an agent needs
+   to see that a heading exists and is empty, not have it vanish. */
+.taxo-h{margin:26px 0 8px;font-size:15px;font-weight:700;color:var(--ink)}
+.cmp-table.taxo{font-size:13.5px}
+.cmp-table.taxo th{font-weight:500;text-align:left}
+/* .cmp-table clips with nowrap+ellipsis, which suits a premium figure and
+   loses a benefit condition: item (k) here is 75 characters in a 367px cell,
+   and the hidden half is the qualification an agent is comparing on. Let the
+   taxonomy cells wrap. */
+/* table-layout:fixed on .cmp-table was deriving its column widths from the
+   nowrap content; dropping nowrap alone collapsed the value column to 0px and
+   wrapped the text one character per line. Size this table from its content
+   instead, and give each column a floor so two plans stay readable side by
+   side. The wrapper scrolls if the sum exceeds the panel. */
+.cmp-table.taxo{table-layout:auto;width:100%}
+.cmp-table.taxo td,.cmp-table.taxo tr.taxo-row th{white-space:normal;overflow:visible;
+  text-overflow:clip;vertical-align:top;line-height:1.45}
+.cmp-table.taxo tr.taxo-row th{width:200px;min-width:170px}
+.cmp-table.taxo td{min-width:190px}
+.cmp-table.taxo tr.taxo-group th{background:var(--chip);color:var(--brand);
+  font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+  padding-top:12px;position:static}
+.cmp-table.taxo tr.taxo-row th{padding-left:14px;color:var(--muted)}
+.cmp-table.taxo tr.taxo-empty th,.cmp-table.taxo tr.taxo-empty td{opacity:.45}
+.cmp-table.taxo td.taxo-none{color:var(--muted)}
