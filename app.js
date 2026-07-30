@@ -494,11 +494,15 @@ function procName(procedure) {
 // agent hunting for a figure that does not exist.
 const basicText = (trio) => {
   if (!trio) return null;
-  const [v, zh, cn] = trio;
+  const [v, zh, cn, detail] = trio;
   if (v === 'NOT_APPLICABLE') {
     return { na: true, txt: LANG === 'en' ? 'Not applicable' : (LANG === 'cn' ? cn : zh) };
   }
-  return { txt: (LANG === 'en' ? v : (LANG === 'cn' ? cn : zh)) || v };
+  // `detail` is the clause the short label was reduced from — a location-dependent
+  // entitlement reads "半私家房（按地點而異）" in the cell and keeps the full
+  // "(a) For Hong Kong, Macau … (b) elsewhere …" on hover, so the qualification is
+  // never lost, only folded.
+  return { txt: (LANG === 'en' ? v : (LANG === 'cn' ? cn : zh)) || v, detail: detail || '' };
 };
 
 /** The five basic facts for one plan, as [label, cell] pairs. */
@@ -509,8 +513,10 @@ function planBasics(pid) {
                      (SELECT schedule_hash FROM product_benefit WHERE product_id=?)`, [pid])[0];
   const terr = e.t != null && BASICS && BASICS.territorial
     ? BASICS.territorial[String(e.t)] : null;
+  const esc = t => String(t).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   const cell = (b) => !b ? `<span class="basic-none">${tr('notStated')}</span>`
-    : b.na ? `<span class="basic-na">${b.txt}</span>` : b.txt;
+    : b.na ? `<span class="basic-na">${b.txt}</span>`
+    : b.detail ? `<span class="basic-more" title="${esc(b.detail)}">${b.txt}</span>` : b.txt;
   return [
     [tr('bWard'), cell(basicText(e.w))],
     [tr('bDeduct'), cell(basicText(e.d))],

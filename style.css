@@ -285,3 +285,5 @@ abbr.fn:hover::after, abbr.fn:focus-visible::after { opacity: 1; visibility: vis
 .basic-na{color:var(--muted);font-style:italic}
 .basic-none{color:var(--muted);opacity:.7}
 .basic-none::before{content:'—  ';font-style:normal}
+/* the short ward label keeps its full clause on hover */
+.basic-more{border-bottom:1px dotted var(--line);cursor:help}
