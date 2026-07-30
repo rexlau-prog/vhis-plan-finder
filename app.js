@@ -862,6 +862,19 @@ const bootSlow = setTimeout(() => {
   if (h) { h.textContent = bootTr('slow'); h.hidden = false; }
 }, 8000);
 
+// Every script tag carries ?v=N, but the DATA assets were fetched bare. A
+// browser that had visited before a data rebuild went on serving the old
+// database, taxonomy and plan basics from cache while the versioned JS updated
+// around it — the app looked current and quietly was not. Caught by comparing a
+// live page against the file on the server: byte-identical on disk, 25 products
+// different in the browser. Reuse the version already stamped on this script.
+const ASSET_V = (() => {
+  const el = document.querySelector('script[src*="app.js"]');
+  const m = el && /[?&]v=([^&"]+)/.exec(el.getAttribute('src') || '');
+  return m ? m[1] : '';
+})();
+const vurl = (u) => (ASSET_V ? `${u}${u.includes('?') ? '&' : '?'}v=${ASSET_V}` : u);
+
 // ------------------------------------------------------------------ data load
 // "SQLite format 3\0" — the first 16 bytes of any SQLite file.
 const SQLITE_MAGIC = [0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66,
@@ -905,7 +918,7 @@ async function fetchProgress(url, onFrac) {
 
 async function inflate(url, onFrac) {
   if (typeof DecompressionStream !== 'function') throw new Error(bootTr('old'));
-  const r = await fetchProgress(url, onFrac || (() => {}));
+  const r = await fetchProgress(vurl(url), onFrac || (() => {}));
   return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
 }
 
@@ -922,7 +935,7 @@ async function loadEither(gzUrl, plainUrl, check, onFrac) {
     return check(await inflate(gzUrl, onFrac), gzUrl);
   } catch (e) { tried.push(`${gzUrl}: ${e.message}`); }
   try {
-    const r = await fetch(plainUrl);
+    const r = await fetch(vurl(plainUrl));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return check(await r.arrayBuffer(), plainUrl);
   } catch (e) { tried.push(`${plainUrl}: ${e.message}`); }
