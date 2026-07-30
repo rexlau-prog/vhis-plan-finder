@@ -4,9 +4,21 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VHIS Plan Finder — agent tool</title>
-  <link rel="stylesheet" href="style.css?v=36" />
+  <link rel="stylesheet" href="style.css?v=37" />
 </head>
 <body>
+  <!-- Static, not injected by app.js. The sql.js CDN <script> below blocks every
+       later script, so an overlay created in JS cannot paint until that request
+       finishes — a slow or blocked CDN showed a blank white page instead. This
+       markup paints with the first frame. app.js fills in the stages and removes
+       it; if the CDN never arrives, the boot timeout replaces it with an error. -->
+  <div class="loading" id="boot">
+    <div class="spin"></div>
+    <p class="boot-stage" id="bootStage">Loading…</p>
+    <div class="boot-track"><div class="boot-fill" id="bootFill"></div></div>
+    <p class="boot-hint" id="bootHint" hidden></p>
+  </div>
+
   <header class="topbar">
     <div class="brand">
       <span class="logo">✚</span>
@@ -140,11 +152,13 @@
     <span class="disclaimer">For agent reference only. Premiums are non-guaranteed and exclude the IA levy. Verify against the official documents before advising a client.</span>
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
-  <script src="i18n.js?v=36"></script>
-  <script src="premium-model.js?v=36"></script>
-  <script src="gap-model.js?v=36"></script>
-  <script src="advisor-core.js?v=36"></script>
-  <script src="app.js?v=36"></script>
+  <!-- All deferred: execution order is still source order, but nothing blocks the
+       parser, so the boot overlay above is on screen before any of this runs. -->
+  <script defer src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
+  <script defer src="i18n.js?v=37"></script>
+  <script defer src="premium-model.js?v=37"></script>
+  <script defer src="gap-model.js?v=37"></script>
+  <script defer src="advisor-core.js?v=37"></script>
+  <script defer src="app.js?v=37"></script>
 </body>
 </html>

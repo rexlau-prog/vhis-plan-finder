@@ -672,37 +672,135 @@ function wire() {
     b.addEventListener('click', () => setLang(b.dataset.l)));
 }
 
-// The database ships gzipped (22 MB → ~3.5 MB) so the hosted demo loads fast.
-// Prefer the .gz and inflate in the browser; fall back to the plain .db when
-// DecompressionStream is unavailable or only the raw file is present.
-// Fetch a gzipped asset and inflate it in the browser, falling back to the
-// plain file when DecompressionStream is unavailable.
-async function loadGz(gzUrl, plainUrl) {
-  if (typeof DecompressionStream === 'function') {
-    try {
-      const r = await fetch(gzUrl);
-      if (r.ok) return await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
-    } catch (e) { /* fall through */ }
-  }
-  return (await fetch(plainUrl)).arrayBuffer();
+// ---------------------------------------------------------------- boot status
+// Stage text for the overlay in index.html. The overlay is up before this file
+// runs, so it can only ever be filled in — never created — here.
+const BOOT_TEXT = {
+  engine: ['Starting the query engine…', '正在啟動查詢引擎…', '正在启动查询引擎…'],
+  data:   ['Downloading plan data',       '正在下載計劃資料',   '正在下载计划资料'],
+  index:  ['Preparing 579 plans…',        '正在整理 579 項計劃…', '正在整理 579 项计划…'],
+  slow:   ['Still working. The first visit downloads about 4 MB; it is cached afterwards.',
+           '仍在處理。首次瀏覽需下載約 4 MB，之後會使用快取。',
+           '仍在处理。首次浏览需下载约 4 MB，之后会使用缓存。'],
+  cdn:    ['Could not load the query engine from the CDN (cdn.jsdelivr.net). Check the network or any blocker, then reload.',
+           '無法從 CDN（cdn.jsdelivr.net）載入查詢引擎。請檢查網絡或攔截器，然後重新載入。',
+           '无法从 CDN（cdn.jsdelivr.net）加载查询引擎。请检查网络或拦截器，然后重新加载。'],
+  fail:   ['Could not load the plan data.', '無法載入計劃資料。', '无法载入计划资料。'],
+  old:    ['This browser cannot decompress the data file. Please use a current version of Chrome, Edge, Safari or Firefox.',
+           '此瀏覽器無法解壓資料檔案。請使用最新版本的 Chrome、Edge、Safari 或 Firefox。',
+           '此浏览器无法解压数据文件。请使用最新版本的 Chrome、Edge、Safari 或 Firefox。'],
+};
+const bootI = () => (LANG === 'hk' ? 1 : LANG === 'cn' ? 2 : 0);
+const bootTr = k => BOOT_TEXT[k][bootI()];
+
+function boot(stage, frac) {
+  const s = document.getElementById('bootStage'), f = document.getElementById('bootFill');
+  if (!s) return;
+  s.textContent = bootTr(stage) + (frac != null ? `  ${Math.round(frac * 100)}%` : '');
+  if (f) f.style.width = (frac != null ? Math.round(frac * 100) : stage === 'index' ? 100 : 6) + '%';
 }
 
-async function loadDb() {
-  if (typeof DecompressionStream === 'function') {
-    try {
-      const r = await fetch('vhis_app.db.gz');
-      if (r.ok) {
-        return await new Response(
-          r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
-      }
-    } catch (e) { /* fall through to the uncompressed copy */ }
-  }
-  return (await fetch('vhis_app.db')).arrayBuffer();
+function bootFail(headline, detail) {
+  const el = document.getElementById('boot');
+  if (!el) return;
+  el.innerHTML = `<p class="boot-err">${headline}${detail ? `<br /><code>${detail}</code>` : ''}</p>`;
 }
+
+// Say something if it is taking a while, so a slow connection reads as slow
+// rather than broken.
+const bootSlow = setTimeout(() => {
+  const h = document.getElementById('bootHint');
+  if (h) { h.textContent = bootTr('slow'); h.hidden = false; }
+}, 8000);
+
+// ------------------------------------------------------------------ data load
+// "SQLite format 3\0" — the first 16 bytes of any SQLite file.
+const SQLITE_MAGIC = [0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66,
+                      0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00];
+
+function assertSqlite(buf, url) {
+  const head = new Uint8Array(buf, 0, Math.min(16, buf.byteLength));
+  const ok = head.length === 16 && SQLITE_MAGIC.every((b, i) => head[i] === b);
+  if (!ok) {
+    // Previously a 404 HTML page was handed straight to sql.js, which hung
+    // instead of reporting anything. Fail loudly with what actually arrived.
+    const first = new TextDecoder().decode(head).replace(/[^\x20-\x7e]/g, '.');
+    throw new Error(`${url} is not a SQLite database (starts with "${first}")`);
+  }
+  return buf;
+}
+
+// Stream a response so download progress is real rather than a guess.
+async function fetchProgress(url, onFrac) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url} → HTTP ${r.status}`);
+  const total = +(r.headers.get('content-length') || 0);
+  if (!total || !r.body || typeof ReadableStream !== 'function') return r;
+  let seen = 0;
+  const body = new ReadableStream({
+    start(c) {
+      const rd = r.body.getReader();
+      (function pump() {
+        rd.read().then(({ done, value }) => {
+          if (done) { c.close(); return; }
+          seen += value.byteLength;
+          onFrac(Math.min(seen / total, 1));
+          c.enqueue(value);
+          pump();
+        }, err => c.error(err));
+      })();
+    },
+  });
+  return new Response(body, { headers: r.headers });
+}
+
+async function inflate(url, onFrac) {
+  if (typeof DecompressionStream !== 'function') throw new Error(bootTr('old'));
+  const r = await fetchProgress(url, onFrac || (() => {}));
+  return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+}
+
+// The two environments each publish exactly one variant: `build_site.py` ships
+// only the gzipped copy (3.4 MB against 24 MB, on every deploy), while the dev
+// tree holds only the plain file. So both paths are live — the bug was never a
+// missing fallback, it was that a failure was swallowed: a 404 HTML body went
+// straight into sql.js, which hung with nothing on screen and nothing logged.
+// Try each in turn, and let `check` reject anything that is not what we asked
+// for before it reaches the parser.
+async function loadEither(gzUrl, plainUrl, check, onFrac) {
+  const tried = [];
+  try {
+    return check(await inflate(gzUrl, onFrac), gzUrl);
+  } catch (e) { tried.push(`${gzUrl}: ${e.message}`); }
+  try {
+    const r = await fetch(plainUrl);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return check(await r.arrayBuffer(), plainUrl);
+  } catch (e) { tried.push(`${plainUrl}: ${e.message}`); }
+  throw new Error(tried.join(' · '));
+}
+
+const asJsonBytes = (buf, url) => {
+  const txt = new TextDecoder().decode(buf).trimStart();
+  if (!txt.startsWith('{') && !txt.startsWith('[')) {
+    throw new Error(`${url} is not JSON (starts with "${txt.slice(0, 24).replace(/\s+/g, ' ')}")`);
+  }
+  return buf;
+};
+
+const loadGz = (gzUrl, plainUrl) => loadEither(gzUrl, plainUrl, asJsonBytes);
+const loadDb = () => loadEither('vhis_app.db.gz', 'vhis_app.db', assertSqlite,
+                                f => boot('data', f));
 
 async function main() {
+  boot('engine');
+  // The engine comes from a CDN. If that request never lands, `initSqlJs` is
+  // simply not defined and the old code threw an opaque ReferenceError.
+  if (typeof initSqlJs !== 'function') throw new Error(bootTr('cdn'));
   const SQL = await initSqlJs({ locateFile: f => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${f}` });
+  boot('data', 0);
   db = new SQL.Database(new Uint8Array(await loadDb()));
+  boot('index');
   PRODUCTS = q(`SELECT * FROM products`);
   // Cost benchmarks + the Government surgical schedule power the coverage-gap
   // estimate. Both are small and optional — the app works without them.
@@ -728,12 +826,17 @@ async function main() {
   wire();
   applyLang();
   render();
-  const l = document.querySelector('.loading'); if (l) l.remove();
+  clearTimeout(bootSlow);
+  const l = document.getElementById('boot'); if (l) l.remove();
 }
 
-// loading overlay + boot
-document.body.insertAdjacentHTML('beforeend', '<div class="loading"><div class="spin"></div></div>');
+// The overlay is static markup in index.html, so there is nothing to create
+// here — only to finish or to fail.
 main().catch(e => {
-  document.querySelector('.loading').innerHTML = '<p style="color:var(--bad);max-width:420px;text-align:center">Failed to load data: ' + e.message + '</p>';
+  clearTimeout(bootSlow);
+  // Messages already written for a human (old browser, blocked CDN) stand on
+  // their own; anything else gets the generic headline plus the raw detail.
+  const own = e.message === bootTr('old') || e.message === bootTr('cdn');
+  bootFail(own ? e.message : bootTr('fail'), own ? '' : e.message);
   console.error(e);
 });

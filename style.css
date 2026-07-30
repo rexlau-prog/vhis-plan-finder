@@ -167,7 +167,15 @@ td.chkcell input{cursor:pointer;width:16px;height:16px}
 .cmp-plan{font-weight:700}
 .cmp-plan small{display:block;color:var(--muted);font-weight:500}
 
-.loading{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);z-index:100}
+.loading{position:fixed;inset:0;display:grid;place-items:center;align-content:center;gap:14px;background:var(--bg);z-index:100}
+/* Stage text + a real percentage: an indeterminate spinner made a 20s first
+   load look identical to a hang. */
+.loading .boot-stage{margin:0;font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.loading .boot-track{width:200px;height:3px;border-radius:2px;background:var(--line);overflow:hidden}
+.loading .boot-fill{height:100%;width:0;background:var(--brand);transition:width .2s ease}
+.loading .boot-hint{margin:0;max-width:300px;text-align:center;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.loading .boot-err{margin:0;max-width:420px;text-align:center;font-size:14px;line-height:1.6;color:var(--bad)}
+.loading .boot-err code{font-size:12px;word-break:break-all}
 .loading .spin{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:sp 1s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 
