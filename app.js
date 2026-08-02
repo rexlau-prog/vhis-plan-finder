@@ -86,7 +86,7 @@ function computeResults() {
     if (p.currency !== state.currency) continue;
     if (state.openOnly && p.status !== 'Open') continue;
     if (state.ptype && p.plan_type !== state.ptype) continue;
-    if (state.smmOnly && !p.has_smm) continue;
+    if (state.smmOnly && !hasSmm(p.product_id)) continue;   // schedule, not level name
     if (state.insurer && p.company_en !== state.insurer) continue;
     if (state.search) {
       const s = state.search.toLowerCase();
@@ -287,7 +287,7 @@ function openDrawer(pid) {
     <div class="d-badges">
       <span class="type-tag">${typeLbl}</span>${statusBadge(p)}
       ${p.tax_deductible ? `<span class="badge tax">${tr('taxFull')}</span>` : ''}
-      ${p.has_smm ? '<span class="badge tax">SMM</span>' : ''}
+      ${hasSmm(p.product_id) ? '<span class="badge tax">SMM</span>' : ''}
     </div>
 
     <div class="d-quote">
@@ -478,6 +478,39 @@ function procName(procedure) {
   return (tr('proc') || {})[procedure] || procedure;
 }
 
+// ------------------------------------------------------- 額外醫療保障 (SMM)
+// products.has_smm is derived upstream as `"SMM" in level_en` — a string match on
+// the plan LEVEL NAME. It is true only for plans that happen to spell "SMM" in
+// their level ("Regular with SMM"), so it flags 70 of the 149 sellable plans that
+// actually carry a supplementary-major-medical benefit. The other 84 publish it
+// in the schedule under their own wording ("Supplementary major medical benefit
+// $120,000 per Policy Year"). The taxonomy already resolves all of those onto
+// SP-i, so read the schedule instead of the name.
+let SMM = null;                                  // product_id -> [raw limit rows]
+
+function buildSmmIndex() {
+  if (!TAXO) return;
+  SMM = {};
+  const rows = q(`SELECT pb.product_id pid, bi.code, bi.name, bi.raw
+                  FROM benefit_items bi JOIN product_benefit pb USING(schedule_hash)
+                  WHERE bi.raw IS NOT NULL AND bi.raw <> ''`);
+  const guard = new RegExp(TAXO.statutory_guard);
+  for (const r of rows) {
+    if (guard.test(r.code || '')) continue;
+    if (TAXO.map[taxoNorm(r.name)] !== 'SP-i') continue;
+    const t = String(r.raw).trim();
+    if (t && !(SMM[r.pid] || []).includes(t)) (SMM[r.pid] ||= []).push(t);
+  }
+}
+// Fail OPEN: if the taxonomy never loaded there is no index, and answering
+// "no SMM" for every plan would silently empty the filter. Fall back to the
+// upstream flag, which is incomplete but not a lie about nothing.
+function hasSmm(pid) {
+  if (SMM) return !!(SMM[pid] && SMM[pid].length);
+  const p = PRODUCTS.find(x => x.product_id === pid);
+  return !!(p && p.has_smm);
+}
+
 // ---------------------------------------------------------------- plan basics
 // The five facts an agent states before anything else. Annual and lifetime
 // limits sit on the schedule. Ward class and deductible come from plan_basics —
@@ -524,6 +557,9 @@ function planBasics(pid) {
     [tr('lifetimeLimit'), (sched && trLimit(sched.l)) || `<span class="basic-none">${tr('notStated')}</span>`],
     [tr('bTerritory'), terr ? (LANG === 'en' ? terr.en : (LANG === 'cn' ? terr.cn : terr.zh))
                             : `<span class="basic-none">${tr('notStated')}</span>`],
+    [tr('bSmm'), hasSmm(pid)
+      ? SMM[pid].map(t => trLimit(t)).join('<br />')
+      : `<span class="basic-na">${LANG === 'en' ? 'Not applicable' : (LANG === 'cn' ? '不適用' : '不適用')}</span>`],
   ];
 }
 
@@ -974,6 +1010,7 @@ async function main() {
       await loadGz('benefit_taxonomy.json.gz', 'benefit_taxonomy.json')));
     BASICS = JSON.parse(new TextDecoder().decode(
       await loadGz('plan_basics.json.gz', 'plan_basics.json')));
+    buildSmmIndex();
   } catch (e) { console.warn('coverage-gap data unavailable', e); }
   // flags are stored as TEXT "0"/"1" (both truthy in JS) — coerce to numbers
   PRODUCTS.forEach(p => { p.has_smm = +p.has_smm; p.tax_deductible = +p.tax_deductible; p.de_registered = +p.de_registered; });
