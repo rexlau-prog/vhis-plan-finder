@@ -66,16 +66,56 @@ function sectionPrice(rows) {
 /**
  * Does this row price the client's CURRENT age?
  *
- * Insurers index rate tables two ways. Most use attained age — the age the
+ * Insurers index rate tables three ways. Most use attained age — the age the
  * client is now. 93 products use "age next birthday", where the row labelled 1
  * is the newborn's rate. Querying the client's age directly against those
  * tables is off by a year in the cheap direction, and at age 0 it finds nothing
  * at all: a newborn got no FWD vFamily quote although the table prices one.
+ *
+ * 79 products (Chubb, Manulife) use a third: "Age Nearest Birthday 最接近生日",
+ * the age at the birthday CLOSEST to the policy date. A client of attained age
+ * N sits on row N while their last birthday is the nearer one and on row N+1
+ * once their next birthday is — so BOTH rows are candidates, and picking
+ * between them needs a date of birth this tool never asks for. Both are
+ * admitted here; `dearerNearestBirthdayYear` then collapses them.
+ * (Structural confirmation that this really is a third basis and not a wording
+ * variant: all 79 of those tables print a row 0 — a newborn's nearest birthday
+ * is their own — where all 93 age-next-birthday tables start at 1.)
  */
 function rowIsForAge(row, age) {
   if (age == null) return true;
   const basis = row.age_basis || 'attained';
-  return basis === 'next_birthday' ? row.age === age + 1 : row.age === age;
+  if (basis === 'next_birthday') return row.age === age + 1;
+  if (basis === 'nearest_birthday') return row.age === age || row.age === age + 1;
+  return row.age === age;
+}
+
+/**
+ * Collapse an age-nearest-birthday table to one row per priced column.
+ *
+ * rowIsForAge admits both candidate years for that basis. Leaving both in would
+ * let `rows.find` in sectionPrice take whichever the query happened to return
+ * first — in practice the lower year — and quoting the lower year is exactly
+ * the under-quoting this module exists to prevent. Where the table prints both,
+ * keep the DEARER: it is the price that survives underwriting whichever side of
+ * their birthday the client turns out to be on. Where it prints only one (a
+ * client at the top of the table), that one stands, since it is the only price
+ * the schedule offers them.
+ *
+ * Dearer, not simply the higher year: infant rates FALL with age, so under 7
+ * the dearer of the two candidates is the younger row.
+ */
+function dearerNearestBirthdayYear(rows) {
+  const isNearest = (r) => (r.age_basis || 'attained') === 'nearest_birthday';
+  if (!rows.some(isNearest)) return rows;
+  const best = new Map(), out = [];
+  for (const r of rows) {
+    if (!isNearest(r)) { out.push(r); continue; }
+    const k = JSON.stringify([r.section, r.component, r.gender, r.smoker, r.frequency]);
+    const cur = best.get(k);
+    if (!cur || r.amount > cur.amount) best.set(k, r);
+  }
+  return out.concat([...best.values()]);
 }
 
 /**
@@ -91,7 +131,7 @@ function pickPremium(rows, opts = {}) {
   // actually indexes under each row's own basis.
   if (rows.some(r => r.age != null)) {
     const forAge = rows.filter(r => rowIsForAge(r, age));
-    if (forAge.length) rows = forAge;
+    if (forAge.length) rows = dearerNearestBirthdayYear(forAge);
   }
 
   // gender, then smoker status, falling back to the unisex / not-applicable rate
@@ -124,5 +164,6 @@ function pickPremium(rows, opts = {}) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { rowIsForAge, pickPremium, sectionPrice, entryBand, isNewBusiness };
+  module.exports = { rowIsForAge, pickPremium, sectionPrice, entryBand, isNewBusiness,
+                     dearerNearestBirthdayYear };
 }
